@@ -6,5 +6,6 @@ app_name = 'masters'
 
 urlpatterns = [
     path('api/masters/', views.masters_list, name='masters_list'),
+    path('api/masters/me/', views.my_master_profile, name='my_master_profile'),
     path('api/masters/<int:pk>/', views.master_detail, name='master_detail'),
 ]

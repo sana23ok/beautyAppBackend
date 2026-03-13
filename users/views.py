@@ -16,6 +16,7 @@ from .serializers import (
     GoogleAuthSerializer,
     LoginSerializer,
     RegisterSerializer,
+    UserUpdateSerializer,
     UserSerializer,
 )
 
@@ -33,6 +34,23 @@ def _auth_response(user):
         'user': UserSerializer(user).data,
         'tokens': _tokens_for_user(user),
     }
+
+
+def _ensure_client_profile(user):
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    client, _ = Client.objects.get_or_create(
+        user=user,
+        defaults={
+            'name': user.get_full_name().strip() or user.email,
+            'email': user.email,
+            'phone_number': profile.phone_number,
+        },
+    )
+    client.name = user.get_full_name().strip() or user.email
+    client.email = user.email
+    client.phone_number = profile.phone_number
+    client.save()
+    return client
 
 
 # ── Register ──────────────────────────────────────────────────────────────────
@@ -175,6 +193,7 @@ def google_auth(request):
         if avatar:
             profile.avatar = avatar
         profile.save()
+        _ensure_client_profile(user)
 
     return Response(_auth_response(user), status=status.HTTP_200_OK)
 
@@ -210,14 +229,24 @@ def token_refresh(request):
 
 # ── Current User (me) ─────────────────────────────────────────────────────────
 
-@api_view(['GET'])
+@api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def me(request):
     """
     Returns the currently authenticated user's profile.
     Requires Authorization: Bearer <access_token> header.
     """
-    return Response(UserSerializer(request.user).data, status=status.HTTP_200_OK)
+    _ensure_client_profile(request.user)
+
+    if request.method == 'GET':
+        return Response(UserSerializer(request.user).data, status=status.HTTP_200_OK)
+
+    serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
+    if not serializer.is_valid():
+        return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = serializer.save()
+    return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
 
 
 # ── All users list ────────────────────────────────────────────────────────────

@@ -8,11 +8,23 @@ from .models import Client, UserProfile
 class UserSerializer(serializers.ModelSerializer):
     avatar = serializers.SerializerMethodField()
     phone_number = serializers.SerializerMethodField()
+    is_master = serializers.SerializerMethodField()
     client_profile_id = serializers.SerializerMethodField()
+    master_profile_id = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ('id', 'email', 'first_name', 'last_name', 'avatar', 'phone_number', 'client_profile_id')
+        fields = (
+            'id',
+            'email',
+            'first_name',
+            'last_name',
+            'avatar',
+            'phone_number',
+            'is_master',
+            'client_profile_id',
+            'master_profile_id',
+        )
 
     def get_avatar(self, obj):
         profile = getattr(obj, 'profile', None)
@@ -22,9 +34,14 @@ class UserSerializer(serializers.ModelSerializer):
         profile = getattr(obj, 'profile', None)
         return profile.phone_number if profile else ''
 
+    def get_is_master(self, obj):
+        return hasattr(obj, 'master_profile')
+
     def get_client_profile_id(self, obj):
-        client = getattr(obj, 'client_profile', None)
-        return client.id if client else None
+        return obj.client_profile.id if hasattr(obj, 'client_profile') else None
+
+    def get_master_profile_id(self, obj):
+        return obj.master_profile.id if hasattr(obj, 'master_profile') else None
 
 
 class RegisterSerializer(serializers.Serializer):
@@ -33,6 +50,7 @@ class RegisterSerializer(serializers.Serializer):
     first_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
     phone_number = serializers.CharField(required=False, allow_blank=True)
+    is_master = serializers.BooleanField(required=False, default=False)
 
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
@@ -45,6 +63,7 @@ class RegisterSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         phone_number = validated_data.pop('phone_number', '')
+        is_master = validated_data.pop('is_master', False)
         user = User.objects.create_user(
             username=validated_data['email'],
             email=validated_data['email'],
@@ -61,6 +80,15 @@ class RegisterSerializer(serializers.Serializer):
             email=validated_data['email'],
             phone_number=phone_number,
         )
+        if is_master:
+            from masters.models import Master
+
+            Master.objects.create(
+                user=user,
+                name=f"{validated_data.get('first_name', '')} {validated_data.get('last_name', '')}".strip()
+                or validated_data['email'],
+                profile_photo='',
+            )
         return user
 
 
@@ -97,3 +125,40 @@ class ClientSerializer(serializers.ModelSerializer):
             'lips_fullness':  {'required': False, 'allow_blank': True, 'default': ''},
             'brow_thickness': {'required': False, 'allow_blank': True, 'default': ''},
         }
+
+
+class UserUpdateSerializer(serializers.Serializer):
+    first_name = serializers.CharField(required=False, allow_blank=True)
+    last_name = serializers.CharField(required=False, allow_blank=True)
+    phone_number = serializers.CharField(required=False, allow_blank=True)
+    avatar = serializers.URLField(required=False, allow_blank=True)
+
+    def update(self, instance, validated_data):
+        profile, _ = UserProfile.objects.get_or_create(user=instance)
+
+        if 'first_name' in validated_data:
+            instance.first_name = validated_data['first_name']
+        if 'last_name' in validated_data:
+            instance.last_name = validated_data['last_name']
+        instance.save()
+
+        if 'phone_number' in validated_data:
+            profile.phone_number = validated_data['phone_number']
+        if 'avatar' in validated_data:
+            profile.avatar = validated_data['avatar'] or None
+        profile.save()
+
+        client, _ = Client.objects.get_or_create(
+            user=instance,
+            defaults={
+                'name': instance.get_full_name().strip() or instance.email,
+                'email': instance.email,
+                'phone_number': profile.phone_number,
+            },
+        )
+        client.name = instance.get_full_name().strip() or instance.email
+        client.email = instance.email
+        client.phone_number = profile.phone_number
+        client.save()
+
+        return instance
