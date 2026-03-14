@@ -26,5 +26,6 @@ urlpatterns = ([
     path('', include('masters.urls')),
     path('', include('users.urls')),
     path('', include('appearance_test.urls')),
+    path('', include('chat.urls')),
 ])
 
