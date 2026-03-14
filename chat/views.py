@@ -153,6 +153,25 @@ def conversation_messages(request, pk):
         )
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def unread_total(request):
+    """
+    GET /api/chat/unread_total/  — Total count of unread messages across all conversations.
+    """
+    from django.db.models import Sum, Count, Q, F
+    from .models import Message
+
+    total = Message.objects.filter(
+        conversation__participants=request.user,
+        is_read=False,
+    ).exclude(
+        sender=request.user,
+    ).count()
+
+    return Response({'unread_total': total}, status=status.HTTP_200_OK)
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def mark_messages_read(request, pk):
