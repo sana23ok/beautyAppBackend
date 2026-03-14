@@ -249,6 +249,90 @@ def me(request):
     return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
 
 
+# ── Upload profile photo (Cloudinary) ──────────────────────────────────────────
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_avatar(request):
+    """
+    Upload a profile photo to Cloudinary and update the user's avatar.
+    Accepts multipart/form-data with key "photo".
+    Returns: {"url": "https://res.cloudinary.com/..."}
+    """
+    cloud_name = getattr(settings, 'CLOUDINARY_CLOUD_NAME', '')
+    api_key = getattr(settings, 'CLOUDINARY_API_KEY', '')
+    api_secret = getattr(settings, 'CLOUDINARY_API_SECRET', '')
+
+    if not all([cloud_name, api_key, api_secret]):
+        return Response(
+            {'error': 'Cloudinary is not configured on the server.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    photo = request.FILES.get('photo')
+    if not photo:
+        return Response(
+            {'error': 'No photo file provided. Use form field "photo".'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Validate file type
+    allowed_types = ('image/jpeg', 'image/png', 'image/webp', 'image/gif')
+    if photo.content_type not in allowed_types:
+        return Response(
+            {'error': f'Invalid file type. Allowed: {", ".join(allowed_types)}'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if photo.size > 10 * 1024 * 1024:  # 10 MB
+        return Response(
+            {'error': 'File too large. Maximum size is 10 MB.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        import cloudinary
+        import cloudinary.uploader
+
+        cloudinary.config(
+            cloud_name=cloud_name,
+            api_key=api_key,
+            api_secret=api_secret,
+        )
+
+        result = cloudinary.uploader.upload(
+            photo,
+            folder='beauty_app_profiles',
+            overwrite=True,
+            resource_type='image',
+        )
+        url = result.get('secure_url') or result.get('url', '')
+
+        if not url:
+            return Response(
+                {'error': 'Cloudinary did not return a URL.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Update UserProfile.avatar
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        profile.avatar = url
+        profile.save()
+
+        # If user is a master, also update Master.profile_photo
+        if hasattr(request.user, 'master_profile'):
+            request.user.master_profile.profile_photo = url
+            request.user.master_profile.save()
+
+        return Response({'url': url}, status=status.HTTP_200_OK)
+
+    except Exception as exc:
+        return Response(
+            {'error': f'Upload failed: {str(exc)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
 # ── All users list ────────────────────────────────────────────────────────────
 
 @api_view(['GET'])
