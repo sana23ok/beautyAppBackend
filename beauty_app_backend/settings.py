@@ -12,8 +12,8 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 from pathlib import Path
-
 from dotenv import load_dotenv
+import cloudinary_storage
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -58,6 +58,8 @@ INSTALLED_APPS = [
     'appearance_test',
 
     'corsheaders',
+    'cloudinary',
+    'cloudinary_storage',
 ]
 
 MIDDLEWARE = [
@@ -164,6 +166,18 @@ SIMPLE_JWT = {
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_WEB_CLIENT_ID', '')
 
 # --- Cloudinary (profile photo upload) ---
-CLOUDINARY_CLOUD_NAME = os.getenv('CLOUDINARY_CLOUD_NAME', '')
-CLOUDINARY_API_KEY = os.getenv('CLOUDINARY_API_KEY', '')
-CLOUDINARY_API_SECRET = os.getenv('CLOUDINARY_API_SECRET', '')
+# Set CLOUDINARY_* in beauty_app_backend/.env (see .env.example; .env is gitignored).
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME', ''),
+    'API_KEY': os.getenv('CLOUDINARY_API_KEY', ''),
+    'API_SECRET': os.getenv('CLOUDINARY_API_SECRET', ''),
+}
+
+CLOUDINARY_CLOUD_NAME = CLOUDINARY_STORAGE['CLOUD_NAME']
+CLOUDINARY_API_KEY = CLOUDINARY_STORAGE['API_KEY']
+CLOUDINARY_API_SECRET = CLOUDINARY_STORAGE['API_SECRET']
+
+# Optional: single URL (alternative to the three vars above); also read in upload_avatar.
+CLOUDINARY_URL = os.getenv('CLOUDINARY_URL', '')
+
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudStorage'

@@ -1,3 +1,5 @@
+import os
+
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.conf import settings
@@ -259,11 +261,12 @@ def upload_avatar(request):
     Accepts multipart/form-data with key "photo".
     Returns: {"url": "https://res.cloudinary.com/..."}
     """
-    cloud_name = getattr(settings, 'CLOUDINARY_CLOUD_NAME', '')
-    api_key = getattr(settings, 'CLOUDINARY_API_KEY', '')
-    api_secret = getattr(settings, 'CLOUDINARY_API_SECRET', '')
+    cloud_name = getattr(settings, 'CLOUDINARY_CLOUD_NAME', '') or ''
+    api_key = getattr(settings, 'CLOUDINARY_API_KEY', '') or ''
+    api_secret = getattr(settings, 'CLOUDINARY_API_SECRET', '') or ''
+    cloudinary_url = getattr(settings, 'CLOUDINARY_URL', '') or os.getenv('CLOUDINARY_URL', '')
 
-    if not all([cloud_name, api_key, api_secret]):
+    if not all([cloud_name, api_key, api_secret]) and not cloudinary_url:
         return Response(
             {'error': 'Cloudinary is not configured on the server.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -276,8 +279,8 @@ def upload_avatar(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # Validate file type
-    allowed_types = ('image/jpeg', 'image/png', 'image/webp', 'image/gif')
+    # Validate file type (image/* from clients is rejected — use concrete types)
+    allowed_types = ('image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic')
     if photo.content_type not in allowed_types:
         return Response(
             {'error': f'Invalid file type. Allowed: {", ".join(allowed_types)}'},
@@ -294,15 +297,20 @@ def upload_avatar(request):
         import cloudinary
         import cloudinary.uploader
 
-        cloudinary.config(
-            cloud_name=cloud_name,
-            api_key=api_key,
-            api_secret=api_secret,
-        )
+        if cloudinary_url:
+            os.environ['CLOUDINARY_URL'] = cloudinary_url
+            cloudinary.config()
+        else:
+            cloudinary.config(
+                cloud_name=cloud_name,
+                api_key=api_key,
+                api_secret=api_secret,
+            )
 
         result = cloudinary.uploader.upload(
             photo,
-            folder='beauty_app_profiles',
+            folder='avatars',
+            asset_folder='avatars',
             overwrite=True,
             resource_type='image',
         )
