@@ -20,7 +20,12 @@ class Conversation(models.Model):
 
     def get_other_participant(self, user):
         """Return the other participant in a two-person conversation."""
-        return self.participants.exclude(id=user.id).first()
+        # Iterate .all() so prefetched participants (with select_related profile/master) stay cached.
+        # .exclude().first() can hit the DB with a plain User queryset and drop prefetch optimizations.
+        for p in self.participants.all():
+            if p.id != user.id:
+                return p
+        return None
 
 
 class Message(models.Model):

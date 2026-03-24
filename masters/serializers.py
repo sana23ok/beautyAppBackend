@@ -1,3 +1,4 @@
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
 from .models import Master, MasterWorkPhoto
@@ -13,7 +14,8 @@ class MasterWorkPhotoSerializer(serializers.ModelSerializer):
 class MasterSerializer(serializers.ModelSerializer):
     """Read serializer — returns full master profile with nested work photos."""
     work_photos = MasterWorkPhotoSerializer(many=True, read_only=True)
-    user_id = serializers.PrimaryKeyRelatedField(source='user', read_only=True)
+    user_id = serializers.PrimaryKeyRelatedField(source='user', read_only=True, allow_null=True)
+    profile_photo = serializers.SerializerMethodField()
 
     class Meta:
         model = Master
@@ -40,6 +42,20 @@ class MasterSerializer(serializers.ModelSerializer):
             'work_photos',
         )
         read_only_fields = ('id', 'rating', 'created_at')
+
+    def get_profile_photo(self, obj):
+        """Master.profile_photo, or linked User's UserProfile.avatar (user may be null)."""
+        if obj.profile_photo:
+            return obj.profile_photo
+        user = obj.user
+        if user is None:
+            return ''
+        try:
+            if user.profile.avatar:
+                return user.profile.avatar
+        except ObjectDoesNotExist:
+            pass
+        return ''
 
 
 class MasterWriteSerializer(serializers.ModelSerializer):

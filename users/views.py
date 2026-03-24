@@ -12,6 +12,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
+from masters.models import Master
+
 from .models import Client, UserProfile
 from .serializers import (
     ClientSerializer,
@@ -31,7 +33,13 @@ def _tokens_for_user(user):
     }
 
 
+def _user_with_relations(user):
+    """Load user with OneToOne relations so serializers read Cloudinary URLs without N+1 bugs."""
+    return User.objects.select_related('profile', 'master_profile', 'client_profile').get(pk=user.pk)
+
+
 def _auth_response(user):
+    user = _user_with_relations(user)
     return {
         'user': UserSerializer(user).data,
         'tokens': _tokens_for_user(user),
@@ -241,14 +249,14 @@ def me(request):
     _ensure_client_profile(request.user)
 
     if request.method == 'GET':
-        return Response(UserSerializer(request.user).data, status=status.HTTP_200_OK)
+        return Response(UserSerializer(_user_with_relations(request.user)).data, status=status.HTTP_200_OK)
 
     serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
     if not serializer.is_valid():
         return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
     user = serializer.save()
-    return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+    return Response(UserSerializer(_user_with_relations(user)).data, status=status.HTTP_200_OK)
 
 
 # ── Upload profile photo (Cloudinary) ──────────────────────────────────────────
@@ -327,10 +335,13 @@ def upload_avatar(request):
         profile.avatar = url
         profile.save()
 
-        # If user is a master, also update Master.profile_photo
-        if hasattr(request.user, 'master_profile'):
-            request.user.master_profile.profile_photo = url
-            request.user.master_profile.save()
+        # If user is a master, also update Master.profile_photo (same Cloudinary URL).
+        try:
+            mp = request.user.master_profile
+            mp.profile_photo = url
+            mp.save(update_fields=['profile_photo'])
+        except Master.DoesNotExist:
+            pass
 
         return Response({'url': url}, status=status.HTTP_200_OK)
 
@@ -350,7 +361,7 @@ def users_list(request):
     GET /api/users/
     Returns all registered users from the database as JSON.
     """
-    users = User.objects.select_related('profile').all().order_by('id')
+    users = User.objects.select_related('profile', 'master_profile', 'client_profile').all().order_by('id')
     return Response(UserSerializer(users, many=True).data, status=status.HTTP_200_OK)
 
 

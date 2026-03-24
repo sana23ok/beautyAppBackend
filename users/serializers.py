@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
 from .models import Client, UserProfile
@@ -27,21 +28,44 @@ class UserSerializer(serializers.ModelSerializer):
         )
 
     def get_avatar(self, obj):
-        profile = getattr(obj, 'profile', None)
-        return profile.avatar if profile else None
+        # Reverse OneToOne: getattr(..., 'profile', None) does not catch DoesNotExist.
+        # Match chat/masters: prefer UserProfile.avatar (Cloudinary upload), then Master.profile_photo.
+        try:
+            if obj.profile.avatar:
+                return obj.profile.avatar
+        except ObjectDoesNotExist:
+            pass
+        try:
+            if obj.master_profile.profile_photo:
+                return obj.master_profile.profile_photo
+        except ObjectDoesNotExist:
+            pass
+        return None
 
     def get_phone_number(self, obj):
-        profile = getattr(obj, 'profile', None)
-        return profile.phone_number if profile else ''
+        try:
+            return obj.profile.phone_number or ''
+        except ObjectDoesNotExist:
+            return ''
 
     def get_is_master(self, obj):
-        return hasattr(obj, 'master_profile')
+        try:
+            obj.master_profile
+            return True
+        except ObjectDoesNotExist:
+            return False
 
     def get_client_profile_id(self, obj):
-        return obj.client_profile.id if hasattr(obj, 'client_profile') else None
+        try:
+            return obj.client_profile.id
+        except ObjectDoesNotExist:
+            return None
 
     def get_master_profile_id(self, obj):
-        return obj.master_profile.id if hasattr(obj, 'master_profile') else None
+        try:
+            return obj.master_profile.id
+        except ObjectDoesNotExist:
+            return None
 
 
 class RegisterSerializer(serializers.Serializer):

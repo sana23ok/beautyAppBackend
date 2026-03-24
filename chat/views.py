@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.db.models import Q
+from django.db.models import Prefetch
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -17,6 +17,18 @@ from .serializers import (
 User = get_user_model()
 
 
+def _users_with_avatar_relations():
+    """Users with profile + master loaded so ParticipantSerializer.get_avatar works."""
+    return User.objects.select_related('profile', 'master_profile')
+
+
+def _prefetch_conversations():
+    return Conversation.objects.prefetch_related(
+        Prefetch('participants', queryset=_users_with_avatar_relations()),
+        'messages',
+    ).distinct()
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def conversations_list(request):
@@ -25,9 +37,11 @@ def conversations_list(request):
     POST /api/chat/conversations/  — Start a new conversation with another user.
     """
     if request.method == 'GET':
-        conversations = Conversation.objects.filter(
-            participants=request.user
-        ).prefetch_related('participants', 'messages').distinct()
+        conversations = (
+            _prefetch_conversations()
+            .filter(participants=request.user)
+            .distinct()
+        )
 
         serializer = ConversationListSerializer(
             conversations,
@@ -51,18 +65,19 @@ def conversations_list(request):
             )
 
         try:
-            other_user = User.objects.get(id=participant_id)
+            other_user = _users_with_avatar_relations().get(id=participant_id)
         except User.DoesNotExist:
             return Response(
                 {'error': 'User not found.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        existing = Conversation.objects.filter(
-            participants=request.user
-        ).filter(
-            participants=other_user
-        ).first()
+        existing = (
+            _prefetch_conversations()
+            .filter(participants=request.user)
+            .filter(participants=other_user)
+            .first()
+        )
 
         if existing:
             if initial_message:
@@ -87,6 +102,7 @@ def conversations_list(request):
                 text=initial_message,
             )
 
+        conversation = _prefetch_conversations().get(pk=conversation.pk)
         return Response(
             ConversationDetailSerializer(conversation, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
@@ -100,9 +116,9 @@ def conversation_detail(request, pk):
     GET /api/chat/conversations/<id>/  — Get conversation with all messages.
     """
     try:
-        conversation = Conversation.objects.prefetch_related(
-            'participants', 'messages'
-        ).get(pk=pk, participants=request.user)
+        conversation = _prefetch_conversations().get(
+            pk=pk, participants=request.user
+        )
     except Conversation.DoesNotExist:
         return Response(
             {'error': 'Conversation not found.'},

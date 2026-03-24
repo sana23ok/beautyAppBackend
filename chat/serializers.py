@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
 from .models import Conversation, Message
@@ -17,18 +18,29 @@ class ParticipantSerializer(serializers.ModelSerializer):
         fields = ('id', 'username', 'first_name', 'last_name', 'avatar', 'is_online', 'display_name')
 
     def get_avatar(self, obj):
-        if hasattr(obj, 'master_profile') and obj.master_profile.profile_photo:
-            return obj.master_profile.profile_photo
-        if hasattr(obj, 'profile') and obj.profile and obj.profile.avatar:
-            return obj.profile.avatar
+        # Never use hasattr() for reverse OneToOne — it still raises DoesNotExist.
+        # Prefer UserProfile.avatar (set by upload_avatar); then Master.profile_photo.
+        try:
+            if obj.profile.avatar:
+                return obj.profile.avatar
+        except ObjectDoesNotExist:
+            pass
+        try:
+            if obj.master_profile.profile_photo:
+                return obj.master_profile.profile_photo
+        except ObjectDoesNotExist:
+            pass
         return ''
 
     def get_is_online(self, obj):
         return False
 
     def get_display_name(self, obj):
-        if hasattr(obj, 'master_profile') and obj.master_profile.name:
-            return obj.master_profile.name
+        try:
+            if obj.master_profile.name:
+                return obj.master_profile.name
+        except ObjectDoesNotExist:
+            pass
         if obj.first_name or obj.last_name:
             return f"{obj.first_name} {obj.last_name}".strip()
         return obj.username or obj.email or f"User {obj.id}"

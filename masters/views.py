@@ -60,7 +60,11 @@ def masters_list(request):
     """
     if request.method == 'GET':
         search_query = request.query_params.get('q') or request.query_params.get('search', '')
-        masters = Master.objects.prefetch_related('work_photos').filter(is_active=True)
+        masters = (
+            Master.objects.select_related('user', 'user__profile')
+            .prefetch_related('work_photos')
+            .filter(is_active=True)
+        )
         masters = _apply_master_search(masters, search_query).distinct()
         serializer = MasterSerializer(masters, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -94,7 +98,11 @@ def master_detail(request, pk):
                               including all work photos.
     """
     try:
-        master = Master.objects.prefetch_related('work_photos').get(pk=pk)
+        master = (
+            Master.objects.select_related('user', 'user__profile')
+            .prefetch_related('work_photos')
+            .get(pk=pk)
+        )
     except Master.DoesNotExist:
         return Response({'error': 'Master not found.'}, status=status.HTTP_404_NOT_FOUND)
 
