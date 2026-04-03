@@ -46,3 +46,37 @@ class MasterWorkPhoto(models.Model):
 
     def __str__(self):
         return f'Photo for {self.master.name}'
+
+
+class MasterWeekTimetable(models.Model):
+    """
+    Per-week working hours for a master. week_start is the Monday (inclusive) of that week.
+    Used for schedules that differ by week; default template hours stay on Master.
+    """
+    master = models.ForeignKey(
+        Master,
+        on_delete=models.CASCADE,
+        related_name='week_timetables',
+    )
+    week_start = models.DateField(db_index=True)
+    monday_hours = models.CharField(max_length=100, blank=True, default='')
+    tuesday_hours = models.CharField(max_length=100, blank=True, default='')
+    wednesday_hours = models.CharField(max_length=100, blank=True, default='')
+    thursday_hours = models.CharField(max_length=100, blank=True, default='')
+    friday_hours = models.CharField(max_length=100, blank=True, default='')
+    saturday_hours = models.CharField(max_length=100, blank=True, default='')
+    sunday_hours = models.CharField(max_length=100, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['week_start']
+        constraints = [
+            models.UniqueConstraint(
+                fields=('master', 'week_start'),
+                name='unique_master_week_start',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.master.name} — week of {self.week_start}'

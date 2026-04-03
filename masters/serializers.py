@@ -1,7 +1,7 @@
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
-from .models import Master, MasterWorkPhoto
+from .models import Master, MasterWeekTimetable, MasterWorkPhoto
 
 
 class MasterWorkPhotoSerializer(serializers.ModelSerializer):
@@ -11,9 +11,36 @@ class MasterWorkPhotoSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'uploaded_at')
 
 
+class MasterWeekTimetableSerializer(serializers.ModelSerializer):
+    """Read/write per-week timetable; week_start must be a Monday (local date)."""
+
+    class Meta:
+        model = MasterWeekTimetable
+        fields = (
+            'id',
+            'week_start',
+            'monday_hours',
+            'tuesday_hours',
+            'wednesday_hours',
+            'thursday_hours',
+            'friday_hours',
+            'saturday_hours',
+            'sunday_hours',
+            'created_at',
+            'updated_at',
+        )
+        read_only_fields = ('id', 'created_at', 'updated_at')
+
+    def validate_week_start(self, value):
+        if value.weekday() != 0:
+            raise serializers.ValidationError('week_start must be a Monday.')
+        return value
+
+
 class MasterSerializer(serializers.ModelSerializer):
     """Read serializer — returns full master profile with nested work photos."""
     work_photos = MasterWorkPhotoSerializer(many=True, read_only=True)
+    week_timetables = MasterWeekTimetableSerializer(many=True, read_only=True)
     user_id = serializers.PrimaryKeyRelatedField(source='user', read_only=True, allow_null=True)
     profile_photo = serializers.SerializerMethodField()
 
@@ -40,6 +67,7 @@ class MasterSerializer(serializers.ModelSerializer):
             'is_active',
             'created_at',
             'work_photos',
+            'week_timetables',
         )
         read_only_fields = ('id', 'rating', 'created_at')
 

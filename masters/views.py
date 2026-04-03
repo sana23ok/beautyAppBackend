@@ -1,3 +1,4 @@
+from django.db import IntegrityError
 from django.db.models import Q
 from django.http import JsonResponse
 from rest_framework import status
@@ -5,8 +6,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Master
-from .serializers import MasterSerializer, MasterWriteSerializer
+from .models import Master, MasterWeekTimetable
+from .serializers import MasterSerializer, MasterWeekTimetableSerializer, MasterWriteSerializer
 
 
 def _apply_master_search(queryset, raw_query):
@@ -62,7 +63,7 @@ def masters_list(request):
         search_query = request.query_params.get('q') or request.query_params.get('search', '')
         masters = (
             Master.objects.select_related('user', 'user__profile')
-            .prefetch_related('work_photos')
+            .prefetch_related('work_photos', 'week_timetables')
             .filter(is_active=True)
         )
         masters = _apply_master_search(masters, search_query).distinct()
@@ -100,7 +101,7 @@ def master_detail(request, pk):
     try:
         master = (
             Master.objects.select_related('user', 'user__profile')
-            .prefetch_related('work_photos')
+            .prefetch_related('work_photos', 'week_timetables')
             .get(pk=pk)
         )
     except Master.DoesNotExist:
@@ -117,7 +118,11 @@ def my_master_profile(request):
     PATCH /api/masters/me/  — Updates the current user's master profile.
     """
     try:
-        master = request.user.master_profile
+        master = (
+            Master.objects.select_related('user', 'user__profile')
+            .prefetch_related('work_photos', 'week_timetables')
+            .get(user=request.user)
+        )
     except Master.DoesNotExist:
         return Response({'error': 'No master profile found for this user.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -129,7 +134,103 @@ def my_master_profile(request):
         return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
     master = serializer.save()
+    master = (
+        Master.objects.select_related('user', 'user__profile')
+        .prefetch_related('work_photos', 'week_timetables')
+        .get(pk=master.pk)
+    )
     return Response(MasterSerializer(master).data, status=status.HTTP_200_OK)
+
+
+# ── Per-week timetables (available weeks) ─────────────────────────────────────
+
+
+def _week_schedule_queryset_for_master(master, request):
+    qs = MasterWeekTimetable.objects.filter(master=master).order_by('week_start')
+    from_s = request.query_params.get('from') or request.query_params.get('from_date')
+    to_s = request.query_params.get('to') or request.query_params.get('to_date')
+    if from_s:
+        qs = qs.filter(week_start__gte=from_s)
+    if to_s:
+        qs = qs.filter(week_start__lte=to_s)
+    return qs
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def my_week_schedules(request):
+    """
+    GET  /api/masters/me/week-schedules/  — List this master's week rows (?from=&to= optional).
+    POST — Create or replace one week (body: week_start Monday + day hours).
+    """
+    try:
+        master = request.user.master_profile
+    except Master.DoesNotExist:
+        return Response({'error': 'No master profile found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        qs = _week_schedule_queryset_for_master(master, request)
+        return Response(MasterWeekTimetableSerializer(qs, many=True).data, status=status.HTTP_200_OK)
+
+    serializer = MasterWeekTimetableSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        serializer.save(master=master)
+    except IntegrityError:
+        return Response(
+            {'error': 'A timetable for this week already exists. Use PATCH on that row or delete it first.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET', 'PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def my_week_schedule_detail(request, schedule_id):
+    try:
+        master = request.user.master_profile
+    except Master.DoesNotExist:
+        return Response({'error': 'No master profile found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        row = MasterWeekTimetable.objects.get(pk=schedule_id, master=master)
+    except MasterWeekTimetable.DoesNotExist:
+        return Response({'error': 'Week schedule not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return Response(MasterWeekTimetableSerializer(row).data, status=status.HTTP_200_OK)
+
+    if request.method == 'DELETE':
+        row.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    serializer = MasterWeekTimetableSerializer(row, data=request.data, partial=True)
+    if not serializer.is_valid():
+        return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        serializer.save()
+    except IntegrityError:
+        return Response(
+            {'error': 'A timetable for this week already exists.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def master_week_schedules_public(request, pk):
+    """
+    GET /api/masters/<id>/week-schedules/ — Read-only week timetables for booking UI.
+    """
+    try:
+        master = Master.objects.get(pk=pk, is_active=True)
+    except Master.DoesNotExist:
+        return Response({'error': 'Master not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    qs = _week_schedule_queryset_for_master(master, request)
+    return Response(MasterWeekTimetableSerializer(qs, many=True).data, status=status.HTTP_200_OK)
 
 
 # ── Connection test (kept for compatibility) ──────────────────────────────────
