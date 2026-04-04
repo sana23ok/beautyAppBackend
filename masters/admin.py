@@ -1,12 +1,18 @@
 from django.contrib import admin
 
-from .models import Master, MasterWeekTimetable, MasterWorkPhoto
+from .models import Master, MasterService, MasterWeekTimetable, MasterWorkPhoto
 
 
 class MasterWorkPhotoInline(admin.TabularInline):
     model = MasterWorkPhoto
     extra = 1
     fields = ('photo_url', 'caption')
+
+
+class MasterServiceInline(admin.TabularInline):
+    model = MasterService
+    extra = 0
+    fields = ('name', 'price', 'duration_minutes')
 
 
 class MasterWeekTimetableInline(admin.TabularInline):
@@ -29,7 +35,7 @@ class MasterAdmin(admin.ModelAdmin):
     list_display = ('name', 'specialization', 'city', 'experience_years', 'rating', 'is_active')
     list_filter = ('specialization', 'city', 'is_active')
     search_fields = ('name', 'specialization', 'city')
-    inlines = [MasterWorkPhotoInline, MasterWeekTimetableInline]
+    inlines = [MasterWorkPhotoInline, MasterServiceInline, MasterWeekTimetableInline]
 
 
 @admin.register(MasterWeekTimetable)
@@ -38,6 +44,13 @@ class MasterWeekTimetableAdmin(admin.ModelAdmin):
     list_filter = ('master',)
     date_hierarchy = 'week_start'
     search_fields = ('master__name',)
+
+
+@admin.register(MasterService)
+class MasterServiceAdmin(admin.ModelAdmin):
+    list_display = ('name', 'price', 'duration_minutes', 'master')
+    list_filter = ('master',)
+    search_fields = ('name', 'master__name')
 
 
 @admin.register(MasterWorkPhoto)

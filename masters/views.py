@@ -63,7 +63,7 @@ def masters_list(request):
         search_query = request.query_params.get('q') or request.query_params.get('search', '')
         masters = (
             Master.objects.select_related('user', 'user__profile')
-            .prefetch_related('work_photos', 'week_timetables')
+            .prefetch_related('work_photos', 'week_timetables', 'services')
             .filter(is_active=True)
         )
         masters = _apply_master_search(masters, search_query).distinct()
@@ -101,7 +101,7 @@ def master_detail(request, pk):
     try:
         master = (
             Master.objects.select_related('user', 'user__profile')
-            .prefetch_related('work_photos', 'week_timetables')
+            .prefetch_related('work_photos', 'week_timetables', 'services')
             .get(pk=pk)
         )
     except Master.DoesNotExist:
@@ -120,7 +120,7 @@ def my_master_profile(request):
     try:
         master = (
             Master.objects.select_related('user', 'user__profile')
-            .prefetch_related('work_photos', 'week_timetables')
+            .prefetch_related('work_photos', 'week_timetables', 'services')
             .get(user=request.user)
         )
     except Master.DoesNotExist:
@@ -136,7 +136,7 @@ def my_master_profile(request):
     master = serializer.save()
     master = (
         Master.objects.select_related('user', 'user__profile')
-        .prefetch_related('work_photos', 'week_timetables')
+        .prefetch_related('work_photos', 'week_timetables', 'services')
         .get(pk=master.pk)
     )
     return Response(MasterSerializer(master).data, status=status.HTTP_200_OK)

@@ -35,6 +35,25 @@ class Master(models.Model):
         return f'{self.name} — {self.specialization}'
 
 
+class MasterService(models.Model):
+    """Price list row: service name, UAH price, optional duration."""
+
+    master = models.ForeignKey(
+        Master,
+        on_delete=models.CASCADE,
+        related_name='services',
+    )
+    name = models.CharField(max_length=255)
+    price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    duration_minutes = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        return f'{self.name} ({self.master.name})'
+
+
 class MasterWorkPhoto(models.Model):
     master = models.ForeignKey(Master, on_delete=models.CASCADE, related_name='work_photos')
     photo_url = models.URLField()
