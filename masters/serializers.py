@@ -128,7 +128,12 @@ class MasterWriteSerializer(serializers.ModelSerializer):
         for photo in photos_data:
             MasterWorkPhoto.objects.create(master=master, **photo)
         for svc in services_data:
-            MasterService.objects.create(master=master, **svc)
+            MasterService.objects.create(
+                master=master,
+                name=svc['name'],
+                price=svc['price'],
+                duration_minutes=svc['duration_minutes'],
+            )
         return master
 
     def update(self, instance, validated_data):
@@ -147,6 +152,11 @@ class MasterWriteSerializer(serializers.ModelSerializer):
         if services_data is not None:
             instance.services.all().delete()
             for svc in services_data:
-                MasterService.objects.create(master=instance, **svc)
+                MasterService.objects.create(
+                    master=instance,
+                    name=svc['name'],
+                    price=svc['price'],
+                    duration_minutes=svc['duration_minutes'],
+                )
 
         return instance

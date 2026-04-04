@@ -1,3 +1,5 @@
+"""If ``table masters_masterservice already exists`` but migrate retries CreateModel:
+``python manage.py migrate masters 0006_masterservice --fake`` (then ``migrate``)."""
 from django.db import migrations, models
 import django.db.models.deletion
 

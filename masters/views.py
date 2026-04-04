@@ -1,4 +1,4 @@
-from django.db import IntegrityError
+from django.db import DatabaseError, IntegrityError
 from django.db.models import Q
 from django.http import JsonResponse
 from rest_framework import status
@@ -133,7 +133,16 @@ def my_master_profile(request):
     if not serializer.is_valid():
         return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-    master = serializer.save()
+    try:
+        master = serializer.save()
+    except DatabaseError:
+        return Response(
+            {
+                'detail': 'Database error while saving profile. Run migrations on the server: python manage.py migrate',
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
     master = (
         Master.objects.select_related('user', 'user__profile')
         .prefetch_related('work_photos', 'week_timetables', 'services')
