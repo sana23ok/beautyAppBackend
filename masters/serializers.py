@@ -43,6 +43,8 @@ class MasterSerializer(serializers.ModelSerializer):
     week_timetables = MasterWeekTimetableSerializer(many=True, read_only=True)
     user_id = serializers.PrimaryKeyRelatedField(source='user', read_only=True, allow_null=True)
     profile_photo = serializers.SerializerMethodField()
+    # Placeholder until MasterService model exists — clients expect this key in JSON (Gson/Kotlin).
+    services = serializers.SerializerMethodField()
 
     class Meta:
         model = Master
@@ -68,8 +70,12 @@ class MasterSerializer(serializers.ModelSerializer):
             'created_at',
             'work_photos',
             'week_timetables',
+            'services',
         )
         read_only_fields = ('id', 'rating', 'created_at')
+
+    def get_services(self, obj):
+        return []
 
     def get_profile_photo(self, obj):
         """Master.profile_photo, or linked User's UserProfile.avatar (user may be null)."""
