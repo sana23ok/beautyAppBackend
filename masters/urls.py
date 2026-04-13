@@ -7,6 +7,7 @@ app_name = 'masters'
 urlpatterns = [
     path('api/masters/', views.masters_list, name='masters_list'),
     path('api/masters/me/', views.my_master_profile, name='my_master_profile'),
+    path('api/masters/me/services/', views.my_master_services, name='my_master_services'),
     path('api/masters/me/week-schedules/', views.my_week_schedules, name='my_week_schedules'),
     path(
         'api/masters/me/week-schedules/<int:schedule_id>/',

@@ -1,4 +1,5 @@
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
 from rest_framework import serializers
 
 from .models import Master, MasterService, MasterWeekTimetable, MasterWorkPhoto
@@ -12,6 +13,22 @@ class MasterWorkPhotoSerializer(serializers.ModelSerializer):
 
 
 class MasterServiceSerializer(serializers.ModelSerializer):
+    def validate_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('Service name cannot be empty.')
+        return value
+
+    def validate_duration_minutes(self, value):
+        if value < 0:
+            raise serializers.ValidationError('Duration must be >= 0.')
+        return value
+
+    def validate_price(self, value):
+        if value < 0:
+            raise serializers.ValidationError('Price must be >= 0.')
+        return value
+
     class Meta:
         model = MasterService
         fields = ('id', 'name', 'price', 'duration_minutes')
@@ -121,21 +138,28 @@ class MasterWriteSerializer(serializers.ModelSerializer):
             'services',
         )
 
+    @staticmethod
+    def _replace_services(master, services_data):
+        master.services.all().delete()
+        for svc in services_data:
+            MasterService.objects.create(
+                master=master,
+                name=svc.get('name', '').strip(),
+                price=svc.get('price', 0),
+                duration_minutes=svc.get('duration_minutes', 0),
+            )
+
+    @transaction.atomic
     def create(self, validated_data):
         photos_data = validated_data.pop('work_photos', [])
         services_data = validated_data.pop('services', [])
         master = Master.objects.create(**validated_data)
         for photo in photos_data:
             MasterWorkPhoto.objects.create(master=master, **photo)
-        for svc in services_data:
-            MasterService.objects.create(
-                master=master,
-                name=svc['name'],
-                price=svc['price'],
-                duration_minutes=svc['duration_minutes'],
-            )
+        self._replace_services(master, services_data)
         return master
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         photos_data = validated_data.pop('work_photos', None)
         services_data = validated_data.pop('services', None)
@@ -150,13 +174,6 @@ class MasterWriteSerializer(serializers.ModelSerializer):
                 MasterWorkPhoto.objects.create(master=instance, **photo)
 
         if services_data is not None:
-            instance.services.all().delete()
-            for svc in services_data:
-                MasterService.objects.create(
-                    master=instance,
-                    name=svc['name'],
-                    price=svc['price'],
-                    duration_minutes=svc['duration_minutes'],
-                )
+            self._replace_services(instance, services_data)
 
         return instance

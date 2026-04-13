@@ -1,3 +1,5 @@
+import logging
+
 from django.db import DatabaseError, IntegrityError
 from django.db.models import Q
 from django.http import JsonResponse
@@ -6,8 +8,16 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Master, MasterWeekTimetable
-from .serializers import MasterSerializer, MasterWeekTimetableSerializer, MasterWriteSerializer
+from .models import Master, MasterService, MasterWeekTimetable
+from .serializers import (
+    MasterSerializer,
+    MasterServiceSerializer,
+    MasterWeekTimetableSerializer,
+    MasterWriteSerializer,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 def _apply_master_search(queryset, raw_query):
@@ -136,6 +146,7 @@ def my_master_profile(request):
     try:
         master = serializer.save()
     except DatabaseError:
+        logger.exception('Failed to save master profile')
         return Response(
             {
                 'detail': 'Database error while saving profile. Run migrations on the server: python manage.py migrate',
@@ -149,6 +160,58 @@ def my_master_profile(request):
         .get(pk=master.pk)
     )
     return Response(MasterSerializer(master).data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated])
+def my_master_services(request):
+    """
+    GET /api/masters/me/services/ — Returns the current master's price list.
+    PUT /api/masters/me/services/ — Replaces the full price list.
+    """
+    try:
+        master = request.user.master_profile
+    except Master.DoesNotExist:
+        return Response({'error': 'No master profile found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        queryset = master.services.all().order_by('id')
+        return Response(MasterServiceSerializer(queryset, many=True).data, status=status.HTTP_200_OK)
+
+    payload = request.data
+    if not isinstance(payload, list):
+        return Response(
+            {'error': 'Body must be an array of services.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    serializer = MasterServiceSerializer(data=payload, many=True)
+    if not serializer.is_valid():
+        return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        master.services.all().delete()
+        MasterService.objects.bulk_create(
+            [
+                MasterService(
+                    master=master,
+                    name=item['name'],
+                    price=item['price'],
+                    duration_minutes=item['duration_minutes'],
+                )
+                for item in serializer.validated_data
+            ]
+        )
+    except DatabaseError:
+        return Response(
+            {
+                'detail': 'Database error while saving services. Run migrations on the server: python manage.py migrate',
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    saved = master.services.all().order_by('id')
+    return Response(MasterServiceSerializer(saved, many=True).data, status=status.HTTP_200_OK)
 
 
 # ── Per-week timetables (available weeks) ─────────────────────────────────────
