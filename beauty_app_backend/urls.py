@@ -24,6 +24,7 @@ urlpatterns = ([
     path('api/test/', test_connection),
     path('api/appearance_test/analyse/', analyse_appearance_view),
     path('', include('masters.urls')),
+    path('', include('bookings.urls')),
     path('', include('users.urls')),
     path('', include('appearance_test.urls')),
     path('', include('chat.urls')),
