@@ -11,6 +11,7 @@ urlpatterns = [
     path('api/auth/google/', views.google_auth, name='auth_google'),
     path('api/auth/refresh/', views.token_refresh, name='auth_refresh'),
     path('api/auth/me/', views.me, name='auth_me'),
+    path('api/auth/become_master/', views.become_master, name='auth_become_master'),
     path('api/auth/upload_avatar/', views.upload_avatar, name='upload_avatar'),
 
     # ── Users list ────────────────────────────────────────────────────────────

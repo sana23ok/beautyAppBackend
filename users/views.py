@@ -239,13 +239,20 @@ def token_refresh(request):
 
 # ── Current User (me) ─────────────────────────────────────────────────────────
 
-@api_view(['GET', 'PATCH'])
+@api_view(['GET', 'PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def me(request):
     """
     Returns the currently authenticated user's profile.
     Requires Authorization: Bearer <access_token> header.
+
+    DELETE removes the user account (cascades to client/master profiles and related data).
     """
+    if request.method == 'DELETE':
+        user = request.user
+        user.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     _ensure_client_profile(request.user)
 
     if request.method == 'GET':
@@ -257,6 +264,29 @@ def me(request):
 
     user = serializer.save()
     return Response(UserSerializer(_user_with_relations(user)).data, status=status.HTTP_200_OK)
+
+
+# ── Promote current user to master (professional account) ─────────────────────
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def become_master(request):
+    """
+    Promote the currently authenticated client to a master (professional) account.
+    Creates an empty Master profile linked to the user if one does not already exist.
+    """
+    if Master.objects.filter(user=request.user).exists():
+        return Response(
+            {'error': 'This user already has a master profile.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    full_name = request.user.get_full_name().strip() or request.user.email
+    Master.objects.create(user=request.user, name=full_name, profile_photo='')
+    return Response(
+        UserSerializer(_user_with_relations(request.user)).data,
+        status=status.HTTP_200_OK,
+    )
 
 
 # ── Upload profile photo (Cloudinary) ──────────────────────────────────────────
