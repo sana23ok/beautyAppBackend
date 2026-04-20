@@ -1,4 +1,4 @@
-from django.db import DatabaseError
+from django.db import DatabaseError, transaction
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -8,6 +8,7 @@ from rest_framework.serializers import DateField
 from .models import Booking
 from .serializers import BookingCreateSerializer, BookingSerializer, allowed_starts_for_service
 from masters.models import Master, MasterService
+from chat.models import Conversation, Message
 
 
 @api_view(['GET'])
@@ -82,3 +83,84 @@ def create_booking(request):
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
     return Response(BookingSerializer(booking).data, status=status.HTTP_201_CREATED)
+
+
+def _notify_client_about_cancellation(master_user, client_user, booking, reason):
+    """Create (or reuse) a DM between master and client and post a cancellation notice."""
+    if master_user is None or client_user is None or master_user.id == client_user.id:
+        return
+
+    conversation = (
+        Conversation.objects
+        .filter(participants=master_user)
+        .filter(participants=client_user)
+        .first()
+    )
+    if conversation is None:
+        conversation = Conversation.objects.create()
+        conversation.participants.add(master_user, client_user)
+
+    date_str = booking.appointment_date.strftime('%d.%m.%Y')
+    time_str = booking.start_time.strftime('%H:%M')
+    service_name = getattr(booking.service, 'name', '') or 'your appointment'
+    header = (
+        f"Your appointment for \"{service_name}\" on {date_str} at {time_str} "
+        f"has been cancelled by the master."
+    )
+    text = header if not reason else f"{header}\nReason: {reason}"
+
+    Message.objects.create(
+        conversation=conversation,
+        sender=master_user,
+        text=text,
+    )
+    conversation.save()
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def cancel_booking(request, pk):
+    """
+    POST /api/bookings/<id>/cancel/
+    Body: { "reason": "optional text" }
+
+    Only the master who owns the booking may cancel. On success the booking is marked
+    as cancelled and a chat message is automatically posted to the client from the
+    master's account explaining the cancellation.
+    """
+    booking = Booking.objects.filter(pk=pk).select_related('master', 'service', 'client').first()
+    if booking is None:
+        return Response({'error': 'Booking not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    master_user = getattr(booking.master, 'user', None)
+    if master_user is None or master_user.id != request.user.id:
+        return Response(
+            {'error': 'Only the master can cancel this booking.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    if booking.status == Booking.Status.CANCELLED:
+        return Response(
+            {'error': 'Booking is already cancelled.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    reason = (request.data.get('reason') or '').strip()[:500]
+
+    try:
+        with transaction.atomic():
+            booking.status = Booking.Status.CANCELLED
+            booking.save(update_fields=['status'])
+            _notify_client_about_cancellation(
+                master_user=master_user,
+                client_user=booking.client,
+                booking=booking,
+                reason=reason,
+            )
+    except DatabaseError:
+        return Response(
+            {'detail': 'Database error while cancelling booking.'},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    return Response(BookingSerializer(booking).data, status=status.HTTP_200_OK)

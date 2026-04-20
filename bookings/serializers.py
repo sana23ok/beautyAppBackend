@@ -93,6 +93,9 @@ def allowed_starts_for_service(master, service, appointment_date):
 
 class BookingSerializer(serializers.ModelSerializer):
     client = serializers.IntegerField(source='client.id', read_only=True)
+    client_name = serializers.SerializerMethodField()
+    client_avatar = serializers.SerializerMethodField()
+    client_phone = serializers.SerializerMethodField()
     master_name = serializers.CharField(source='master.name', read_only=True)
     service_name = serializers.CharField(source='service.name', read_only=True)
     service_duration_minutes = serializers.IntegerField(source='service.duration_minutes', read_only=True)
@@ -104,6 +107,9 @@ class BookingSerializer(serializers.ModelSerializer):
         fields = (
             'id',
             'client',
+            'client_name',
+            'client_avatar',
+            'client_phone',
             'master',
             'master_name',
             'master_city',
@@ -119,6 +125,36 @@ class BookingSerializer(serializers.ModelSerializer):
             'created_at',
         )
         read_only_fields = fields
+
+    def get_client_name(self, obj):
+        user = obj.client
+        if not user:
+            return ''
+        full = f"{user.first_name} {user.last_name}".strip()
+        if full:
+            return full
+        return user.username or user.email or f"User {user.id}"
+
+    def get_client_avatar(self, obj):
+        user = obj.client
+        if not user:
+            return ''
+        try:
+            avatar = user.profile.avatar
+            if avatar:
+                return avatar
+        except Exception:
+            pass
+        return ''
+
+    def get_client_phone(self, obj):
+        user = obj.client
+        if not user:
+            return ''
+        try:
+            return user.profile.phone_number or ''
+        except Exception:
+            return ''
 
 
 class BookingCreateSerializer(serializers.Serializer):
