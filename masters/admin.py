@@ -12,7 +12,7 @@ class MasterWorkPhotoInline(admin.TabularInline):
 class MasterServiceInline(admin.TabularInline):
     model = MasterService
     extra = 0
-    fields = ('name', 'price', 'duration_minutes')
+    fields = ('name', 'price', 'duration_minutes', 'requires_prepayment', 'is_active')
 
 
 class MasterWeekTimetableInline(admin.TabularInline):
@@ -32,7 +32,7 @@ class MasterWeekTimetableInline(admin.TabularInline):
 
 @admin.register(Master)
 class MasterAdmin(admin.ModelAdmin):
-    list_display = ('name', 'specialization', 'city', 'experience_years', 'rating', 'is_active')
+    list_display = ('name', 'specialization', 'city', 'experience_years', 'rating', 'is_active', 'iban')
     list_filter = ('specialization', 'city', 'is_active')
     search_fields = ('name', 'specialization', 'city')
     inlines = [MasterWorkPhotoInline, MasterServiceInline, MasterWeekTimetableInline]
@@ -48,7 +48,7 @@ class MasterWeekTimetableAdmin(admin.ModelAdmin):
 
 @admin.register(MasterService)
 class MasterServiceAdmin(admin.ModelAdmin):
-    list_display = ('name', 'price', 'duration_minutes', 'master')
+    list_display = ('name', 'price', 'duration_minutes', 'requires_prepayment', 'is_active', 'master')
     list_filter = ('master',)
     search_fields = ('name', 'master__name')
 

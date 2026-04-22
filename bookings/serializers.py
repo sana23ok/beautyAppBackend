@@ -99,6 +99,7 @@ class BookingSerializer(serializers.ModelSerializer):
     master_name = serializers.CharField(source='master.name', read_only=True)
     service_name = serializers.SerializerMethodField()
     service_duration_minutes = serializers.SerializerMethodField()
+    service_requires_prepayment = serializers.SerializerMethodField()
     master_city = serializers.CharField(source='master.city', read_only=True)
     master_address = serializers.CharField(source='master.address', read_only=True)
 
@@ -117,6 +118,7 @@ class BookingSerializer(serializers.ModelSerializer):
             'service',
             'service_name',
             'service_duration_minutes',
+            'service_requires_prepayment',
             'appointment_date',
             'start_time',
             'end_time',
@@ -172,6 +174,14 @@ class BookingSerializer(serializers.ModelSerializer):
                 pass
         return 0
 
+    def get_service_requires_prepayment(self, obj):
+        if obj.service_id is not None:
+            try:
+                return bool(obj.service.requires_prepayment)
+            except Exception:
+                pass
+        return False
+
 
 class BookingCreateSerializer(serializers.Serializer):
     master_id = serializers.IntegerField()
@@ -190,6 +200,14 @@ class BookingCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError({'service_id': 'Service not found for this master.'})
         if service.duration_minutes <= 0:
             raise serializers.ValidationError({'service_id': 'Selected service has no duration.'})
+
+        if service.requires_prepayment:
+            iban = (getattr(master, 'iban', None) or '').strip()
+            purpose = (getattr(master, 'payment_purpose', None) or '').strip()
+            if not iban or not purpose:
+                raise serializers.ValidationError({
+                    'service_id': 'This service requires prepayment, but payment details are not set up yet.',
+                })
 
         start_time = attrs['start_time']
         if start_time.minute not in (0, 30) or start_time.second != 0:

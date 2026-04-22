@@ -25,6 +25,12 @@ MAX_WORK_PHOTOS = 50
 logger = logging.getLogger(__name__)
 
 
+def _master_has_prepayment_details(master):
+    iban = (getattr(master, 'iban', None) or '').strip()
+    purpose = (getattr(master, 'payment_purpose', None) or '').strip()
+    return bool(iban and purpose)
+
+
 def _apply_master_search(queryset, raw_query):
     """
     Split the incoming text into keywords and require each keyword to match at
@@ -187,6 +193,13 @@ def my_master_services(request):
     serializer = MasterServiceSerializer(data=request.data)
     if not serializer.is_valid():
         return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+    if serializer.validated_data.get('requires_prepayment') and not _master_has_prepayment_details(master):
+        return Response(
+            {
+                'error': 'Add your IBAN and payment reference to your profile before enabling mandatory prepayment.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     try:
         service = serializer.save(master=master, is_active=True)
     except DatabaseError:
@@ -235,6 +248,16 @@ def my_master_service_detail(request, service_id):
     serializer = MasterServiceSerializer(service, data=request.data, partial=True)
     if not serializer.is_valid():
         return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+    new_prepayment = service.requires_prepayment
+    if 'requires_prepayment' in serializer.validated_data:
+        new_prepayment = serializer.validated_data['requires_prepayment']
+    if new_prepayment and not _master_has_prepayment_details(master):
+        return Response(
+            {
+                'error': 'Add your IBAN and payment reference to your profile before enabling mandatory prepayment.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     try:
         serializer.save()
     except DatabaseError:

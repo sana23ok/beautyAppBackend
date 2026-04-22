@@ -69,6 +69,46 @@ def my_bookings(request):
     return Response(BookingSerializer(bookings, many=True).data, status=status.HTTP_200_OK)
 
 
+def _notify_client_about_prepayment(master_user, client_user, booking):
+    """Post a DM from the master to the client with prepayment details after booking a prepayment-required service."""
+    if master_user is None or client_user is None or master_user.id == client_user.id:
+        return
+
+    conversation = (
+        Conversation.objects
+        .filter(participants=master_user)
+        .filter(participants=client_user)
+        .first()
+    )
+    if conversation is None:
+        conversation = Conversation.objects.create()
+        conversation.participants.add(master_user, client_user)
+
+    service_name = (booking.service and booking.service.name) or 'this service'
+    date_str = booking.appointment_date.strftime('%d.%m.%Y')
+    time_str = booking.start_time.strftime('%H:%M')
+    master = booking.master
+    iban = (getattr(master, 'iban', None) or '').strip()
+    purpose = (getattr(master, 'payment_purpose', None) or '').strip()
+
+    lines = [
+        f'You have booked "{service_name}" on {date_str} at {time_str}.',
+        'This service requires a mandatory prepayment.',
+        'Please pay at least 5 hours before your visit; otherwise the master may cancel your booking.',
+    ]
+    if iban:
+        lines.append(f'IBAN: {iban}')
+    if purpose:
+        lines.append(f'Payment reference: {purpose}')
+
+    Message.objects.create(
+        conversation=conversation,
+        sender=master_user,
+        text='\n'.join(lines),
+    )
+    conversation.save()
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_booking(request):
@@ -82,6 +122,17 @@ def create_booking(request):
             {'detail': 'Database error while creating booking. Run migrations on the server: python manage.py migrate'},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
+
+    pk = booking.pk
+    if getattr(booking.service, 'requires_prepayment', False):
+        booking = Booking.objects.select_related('master', 'service', 'master__user').get(pk=pk)
+        _notify_client_about_prepayment(
+            master_user=getattr(booking.master, 'user', None),
+            client_user=booking.client,
+            booking=booking,
+        )
+
+    booking = Booking.objects.select_related('master', 'service', 'client').get(pk=pk)
     return Response(BookingSerializer(booking).data, status=status.HTTP_201_CREATED)
 
 
