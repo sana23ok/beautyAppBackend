@@ -31,7 +31,7 @@ class MasterServiceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MasterService
-        fields = ('id', 'name', 'price', 'duration_minutes')
+        fields = ('id', 'name', 'price', 'duration_minutes', 'requires_prepayment')
         read_only_fields = ('id',)
 
 
@@ -65,7 +65,7 @@ class MasterSerializer(serializers.ModelSerializer):
     """Read serializer — returns full master profile with nested work photos and services."""
     work_photos = MasterWorkPhotoSerializer(many=True, read_only=True)
     week_timetables = MasterWeekTimetableSerializer(many=True, read_only=True)
-    services = MasterServiceSerializer(many=True, read_only=True)
+    services = serializers.SerializerMethodField()
     user_id = serializers.PrimaryKeyRelatedField(source='user', read_only=True, allow_null=True)
     profile_photo = serializers.SerializerMethodField()
 
@@ -81,6 +81,8 @@ class MasterSerializer(serializers.ModelSerializer):
             'experience_years',
             'description',
             'profile_photo',
+            'iban',
+            'payment_purpose',
             'monday_hours',
             'tuesday_hours',
             'wednesday_hours',
@@ -111,11 +113,18 @@ class MasterSerializer(serializers.ModelSerializer):
             pass
         return ''
 
+    def get_services(self, obj):
+        """Return only active price-list rows; inactive rows are kept for booking FK integrity."""
+        active = obj.services.filter(is_active=True).order_by('id')
+        return MasterServiceSerializer(active, many=True).data
+
 
 class MasterWriteSerializer(serializers.ModelSerializer):
-    """Write serializer — used when creating or updating a master."""
+    """Write serializer — used when creating or updating a master profile.
+    Services are intentionally excluded; they are managed exclusively through
+    the dedicated per-service endpoints (POST/PATCH/DELETE /api/masters/me/services/).
+    """
     work_photos = MasterWorkPhotoSerializer(many=True, required=False)
-    services = MasterServiceSerializer(many=True, required=False)
 
     class Meta:
         model = Master
@@ -127,6 +136,8 @@ class MasterWriteSerializer(serializers.ModelSerializer):
             'experience_years',
             'description',
             'profile_photo',
+            'iban',
+            'payment_purpose',
             'monday_hours',
             'tuesday_hours',
             'wednesday_hours',
@@ -135,34 +146,19 @@ class MasterWriteSerializer(serializers.ModelSerializer):
             'saturday_hours',
             'sunday_hours',
             'work_photos',
-            'services',
         )
-
-    @staticmethod
-    def _replace_services(master, services_data):
-        master.services.all().delete()
-        for svc in services_data:
-            MasterService.objects.create(
-                master=master,
-                name=svc.get('name', '').strip(),
-                price=svc.get('price', 0),
-                duration_minutes=svc.get('duration_minutes', 0),
-            )
 
     @transaction.atomic
     def create(self, validated_data):
         photos_data = validated_data.pop('work_photos', [])
-        services_data = validated_data.pop('services', [])
         master = Master.objects.create(**validated_data)
         for photo in photos_data:
             MasterWorkPhoto.objects.create(master=master, **photo)
-        self._replace_services(master, services_data)
         return master
 
     @transaction.atomic
     def update(self, instance, validated_data):
         photos_data = validated_data.pop('work_photos', None)
-        services_data = validated_data.pop('services', None)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -172,8 +168,5 @@ class MasterWriteSerializer(serializers.ModelSerializer):
             instance.work_photos.all().delete()
             for photo in photos_data:
                 MasterWorkPhoto.objects.create(master=instance, **photo)
-
-        if services_data is not None:
-            self._replace_services(instance, services_data)
 
         return instance

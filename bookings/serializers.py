@@ -97,8 +97,8 @@ class BookingSerializer(serializers.ModelSerializer):
     client_avatar = serializers.SerializerMethodField()
     client_phone = serializers.SerializerMethodField()
     master_name = serializers.CharField(source='master.name', read_only=True)
-    service_name = serializers.CharField(source='service.name', read_only=True)
-    service_duration_minutes = serializers.IntegerField(source='service.duration_minutes', read_only=True)
+    service_name = serializers.SerializerMethodField()
+    service_duration_minutes = serializers.SerializerMethodField()
     master_city = serializers.CharField(source='master.city', read_only=True)
     master_address = serializers.CharField(source='master.address', read_only=True)
 
@@ -156,6 +156,22 @@ class BookingSerializer(serializers.ModelSerializer):
         except Exception:
             return ''
 
+    def get_service_name(self, obj):
+        if obj.service_id is not None:
+            try:
+                return obj.service.name
+            except Exception:
+                pass
+        return ''
+
+    def get_service_duration_minutes(self, obj):
+        if obj.service_id is not None:
+            try:
+                return obj.service.duration_minutes
+            except Exception:
+                pass
+        return 0
+
 
 class BookingCreateSerializer(serializers.Serializer):
     master_id = serializers.IntegerField()
@@ -169,7 +185,7 @@ class BookingCreateSerializer(serializers.Serializer):
         if master is None:
             raise serializers.ValidationError({'master_id': 'Master not found.'})
 
-        service = MasterService.objects.filter(pk=attrs['service_id'], master=master).first()
+        service = MasterService.objects.filter(pk=attrs['service_id'], master=master, is_active=True).first()
         if service is None:
             raise serializers.ValidationError({'service_id': 'Service not found for this master.'})
         if service.duration_minutes <= 0:

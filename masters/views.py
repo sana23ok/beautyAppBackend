@@ -167,12 +167,12 @@ def my_master_profile(request):
     return Response(MasterSerializer(master).data, status=status.HTTP_200_OK)
 
 
-@api_view(['GET', 'PUT'])
+@api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def my_master_services(request):
     """
-    GET /api/masters/me/services/ — Returns the current master's price list.
-    PUT /api/masters/me/services/ — Replaces the full price list.
+    GET  /api/masters/me/services/ — Returns the current master's active price list.
+    POST /api/masters/me/services/ — Creates a single new service row.
     """
     try:
         master = request.user.master_profile
@@ -180,43 +180,69 @@ def my_master_services(request):
         return Response({'error': 'No master profile found for this user.'}, status=status.HTTP_404_NOT_FOUND)
 
     if request.method == 'GET':
-        queryset = master.services.all().order_by('id')
+        queryset = master.services.filter(is_active=True).order_by('id')
         return Response(MasterServiceSerializer(queryset, many=True).data, status=status.HTTP_200_OK)
 
-    payload = request.data
-    if not isinstance(payload, list):
-        return Response(
-            {'error': 'Body must be an array of services.'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    serializer = MasterServiceSerializer(data=payload, many=True)
+    # POST — create one service
+    serializer = MasterServiceSerializer(data=request.data)
     if not serializer.is_valid():
         return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-
     try:
-        master.services.all().delete()
-        MasterService.objects.bulk_create(
-            [
-                MasterService(
-                    master=master,
-                    name=item['name'],
-                    price=item['price'],
-                    duration_minutes=item['duration_minutes'],
-                )
-                for item in serializer.validated_data
-            ]
-        )
+        service = serializer.save(master=master, is_active=True)
     except DatabaseError:
         return Response(
-            {
-                'detail': 'Database error while saving services. Run migrations on the server: python manage.py migrate',
-            },
+            {'detail': 'Database error while saving service. Run migrations on the server: python manage.py migrate'},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
+    return Response(MasterServiceSerializer(service).data, status=status.HTTP_201_CREATED)
 
-    saved = master.services.all().order_by('id')
-    return Response(MasterServiceSerializer(saved, many=True).data, status=status.HTTP_200_OK)
+
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def my_master_service_detail(request, service_id):
+    """
+    PATCH  /api/masters/me/services/<id>/ — Update a single service row (partial).
+    DELETE /api/masters/me/services/<id>/ — Remove a service from the price list.
+                                            If bookings reference it, the row is kept
+                                            in the DB (is_active=False) so no bookings
+                                            are lost; otherwise the row is hard-deleted.
+    """
+    try:
+        master = request.user.master_profile
+    except Master.DoesNotExist:
+        return Response({'error': 'No master profile found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        service = MasterService.objects.get(pk=service_id, master=master, is_active=True)
+    except MasterService.DoesNotExist:
+        return Response({'error': 'Service not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'DELETE':
+        try:
+            if service.bookings.exists():
+                service.is_active = False
+                service.save(update_fields=['is_active'])
+            else:
+                service.delete()
+        except DatabaseError:
+            return Response(
+                {'detail': 'Database error while deleting service.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # PATCH
+    serializer = MasterServiceSerializer(service, data=request.data, partial=True)
+    if not serializer.is_valid():
+        return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        serializer.save()
+    except DatabaseError:
+        return Response(
+            {'detail': 'Database error while updating service.'},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 # ── Per-week timetables (available weeks) ─────────────────────────────────────

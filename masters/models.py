@@ -27,6 +27,8 @@ class Master(models.Model):
     rating = models.FloatField(default=0.0)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    iban = models.CharField(max_length=64, blank=True, default='')
+    payment_purpose = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
         ordering = ['-rating', 'name']
@@ -46,6 +48,9 @@ class MasterService(models.Model):
     name = models.CharField(max_length=255)
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     duration_minutes = models.PositiveIntegerField(default=0)
+    requires_prepayment = models.BooleanField(default=False)
+    # False = historical row kept for booking FK integrity; True = shown in active price list
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         ordering = ['id']

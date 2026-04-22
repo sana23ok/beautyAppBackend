@@ -26,7 +26,7 @@ def available_slots(request):
     master = Master.objects.filter(pk=master_id, is_active=True).first()
     if master is None:
         return Response({'error': 'Master not found.'}, status=status.HTTP_404_NOT_FOUND)
-    service = MasterService.objects.filter(pk=service_id, master=master).first()
+    service = MasterService.objects.filter(pk=service_id, master=master, is_active=True).first()
     if service is None:
         return Response({'error': 'Service not found for this master.'}, status=status.HTTP_404_NOT_FOUND)
     try:
@@ -102,7 +102,7 @@ def _notify_client_about_cancellation(master_user, client_user, booking, reason)
 
     date_str = booking.appointment_date.strftime('%d.%m.%Y')
     time_str = booking.start_time.strftime('%H:%M')
-    service_name = getattr(booking.service, 'name', '') or 'your appointment'
+    service_name = (booking.service and booking.service.name) or 'your appointment'
     header = (
         f"Your appointment for \"{service_name}\" on {date_str} at {time_str} "
         f"has been cancelled by the master."

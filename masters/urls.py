@@ -8,6 +8,11 @@ urlpatterns = [
     path('api/masters/', views.masters_list, name='masters_list'),
     path('api/masters/me/', views.my_master_profile, name='my_master_profile'),
     path('api/masters/me/services/', views.my_master_services, name='my_master_services'),
+    path(
+        'api/masters/me/services/<int:service_id>/',
+        views.my_master_service_detail,
+        name='my_master_service_detail',
+    ),
     path('api/masters/me/work_photos/', views.my_work_photos, name='my_work_photos'),
     path(
         'api/masters/me/work_photos/<int:photo_id>/',
