@@ -14,15 +14,16 @@ import os
 from pathlib import Path
 
 import cloudinary_storage
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load .env from project root (beauty_app_backend/) — optional if python-dotenv not installed
+# Load .env from project root (beauty_app_backend/, same folder as manage.py)
 try:
     from dotenv import load_dotenv
 
-    load_dotenv(BASE_DIR / '.env')
+    load_dotenv(BASE_DIR / '.env', encoding='utf-8')
 except ImportError:
     pass
 
@@ -101,13 +102,43 @@ WSGI_APPLICATION = 'beauty_app_backend.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+# PostgreSQL — set POSTGRES_PASSWORD in beauty_app_backend/.env (see .env.example).
+# Also accepts PGPASSWORD (same as the psql client).
+#
+# For one-off export from the old SQLite file (PowerShell), use UTF-8 + write
+# straight to a file (avoids Windows console "charmap" errors on emoji, etc.):
+#   $env:USE_SQLITE='1'
+#   $env:PYTHONUTF8='1'
+#   python manage.py dumpdata --natural-foreign --natural-primary -e contenttypes -e auth.Permission -e sessions --indent 2 -o backup.json
+#   Remove-Item Env:USE_SQLITE; Remove-Item Env:PYTHONUTF8
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+if os.getenv('USE_SQLITE', '').strip().lower() in ('1', 'true', 'yes'):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+else:
+    _POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD') or os.getenv('PGPASSWORD') or ''
+    if not _POSTGRES_PASSWORD:
+        raise ImproperlyConfigured(
+            'PostgreSQL password is missing. Add a line to '
+            f'{BASE_DIR / ".env"}:\n'
+            '  POSTGRES_PASSWORD=your_postgres_password\n'
+            '(same folder as manage.py). Or set PGPASSWORD in the environment.'
+        )
+
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('POSTGRES_DB', 'beautydb'),
+            'USER': os.getenv('POSTGRES_USER', 'postgres'),
+            'PASSWORD': _POSTGRES_PASSWORD,
+            'HOST': os.getenv('POSTGRES_HOST', 'localhost'),
+            'PORT': os.getenv('POSTGRES_PORT', '5433'),
+        }
+    }
 
 
 # Password validation
