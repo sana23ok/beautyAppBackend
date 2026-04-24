@@ -2,7 +2,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from rest_framework import serializers
 
-from .models import Master, MasterService, MasterWeekTimetable, MasterWorkPhoto
+from .models import Master, MasterReview, MasterService, MasterWeekTimetable, MasterWorkPhoto
 
 
 class MasterWorkPhotoSerializer(serializers.ModelSerializer):
@@ -61,6 +61,40 @@ class MasterWeekTimetableSerializer(serializers.ModelSerializer):
         return value
 
 
+class MasterReviewReadSerializer(serializers.ModelSerializer):
+    author_name = serializers.SerializerMethodField()
+    author_avatar = serializers.SerializerMethodField()
+    is_verified = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MasterReview
+        fields = ('id', 'author_name', 'author_avatar', 'rating', 'comment', 'created_at', 'is_verified')
+        read_only_fields = fields
+
+    def get_author_name(self, obj):
+        u = obj.author
+        full = f'{u.first_name} {u.last_name}'.strip()
+        if full:
+            return full
+        return u.username or u.email or f'User {u.id}'
+
+    def get_author_avatar(self, obj):
+        try:
+            if obj.author.profile.avatar:
+                return obj.author.profile.avatar
+        except ObjectDoesNotExist:
+            pass
+        return ''
+
+    def get_is_verified(self, obj):
+        return True
+
+
+class MasterReviewWriteSerializer(serializers.Serializer):
+    rating = serializers.IntegerField(min_value=1, max_value=5)
+    comment = serializers.CharField(max_length=2000, allow_blank=True, default='')
+
+
 class MasterSerializer(serializers.ModelSerializer):
     """Read serializer — returns full master profile with nested work photos and services."""
     work_photos = MasterWorkPhotoSerializer(many=True, read_only=True)
@@ -68,6 +102,7 @@ class MasterSerializer(serializers.ModelSerializer):
     services = serializers.SerializerMethodField()
     user_id = serializers.PrimaryKeyRelatedField(source='user', read_only=True, allow_null=True)
     profile_photo = serializers.SerializerMethodField()
+    reviews_average = serializers.SerializerMethodField()
 
     class Meta:
         model = Master
@@ -91,13 +126,20 @@ class MasterSerializer(serializers.ModelSerializer):
             'saturday_hours',
             'sunday_hours',
             'rating',
+            'review_count',
+            'reviews_average',
             'is_active',
             'created_at',
             'work_photos',
             'week_timetables',
             'services',
         )
-        read_only_fields = ('id', 'rating', 'created_at')
+        read_only_fields = ('id', 'rating', 'review_count', 'reviews_average', 'created_at')
+
+    def get_reviews_average(self, obj):
+        if obj.review_count == 0:
+            return None
+        return round(float(obj.rating), 2)
 
     def get_profile_photo(self, obj):
         """Master.profile_photo, or linked User's UserProfile.avatar (user may be null)."""

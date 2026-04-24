@@ -1,4 +1,5 @@
 from django.contrib.auth.models import User
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -25,6 +26,7 @@ class Master(models.Model):
     saturday_hours = models.CharField(max_length=100, blank=True, default='')
     sunday_hours = models.CharField(max_length=100, blank=True, default='')
     rating = models.FloatField(default=0.0)
+    review_count = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     iban = models.CharField(max_length=64, blank=True, default='')
@@ -35,6 +37,20 @@ class Master(models.Model):
 
     def __str__(self):
         return f'{self.name} — {self.specialization}'
+
+    @classmethod
+    def sync_review_aggregates_for_master_id(cls, master_id):
+        """Recompute denormalized rating + review_count from MasterReview rows (single aggregate query)."""
+        from django.db.models import Avg, Count
+
+        agg = MasterReview.objects.filter(master_id=master_id).aggregate(
+            cnt=Count('id'),
+            avg=Avg('rating'),
+        )
+        n = agg['cnt'] or 0
+        raw = agg['avg']
+        rating = float(raw) if raw is not None and n > 0 else 0.0
+        cls.objects.filter(pk=master_id).update(review_count=n, rating=rating)
 
 
 class MasterService(models.Model):
@@ -104,3 +120,31 @@ class MasterWeekTimetable(models.Model):
 
     def __str__(self):
         return f'{self.master.name} — week of {self.week_start}'
+
+
+class MasterReview(models.Model):
+    """Client review after a completed visit (see API eligibility: past non-cancelled booking)."""
+
+    author = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='master_reviews_written',
+    )
+    master = models.ForeignKey(
+        Master,
+        on_delete=models.CASCADE,
+        related_name='reviews',
+    )
+    rating = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
+    comment = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=('author', 'master'), name='unique_review_per_author_master'),
+        ]
+
+    def __str__(self):
+        return f'{self.author_id} → {self.master_id}: {self.rating}★'

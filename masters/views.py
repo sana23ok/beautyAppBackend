@@ -1,17 +1,24 @@
 import logging
 import os
+from datetime import datetime
 
 from django.conf import settings
 from django.db import DatabaseError, IntegrityError
 from django.db.models import Q
 from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Master, MasterService, MasterWeekTimetable, MasterWorkPhoto
+from bookings.models import Booking
+
+from .models import Master, MasterReview, MasterService, MasterWeekTimetable, MasterWorkPhoto
 from .serializers import (
+    MasterReviewReadSerializer,
+    MasterReviewWriteSerializer,
     MasterSerializer,
     MasterServiceSerializer,
     MasterWeekTimetableSerializer,
@@ -129,6 +136,112 @@ def master_detail(request, pk):
         return Response({'error': 'Master not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     return Response(MasterSerializer(master).data, status=status.HTTP_200_OK)
+
+
+def _user_has_completed_past_booking(user, master):
+    """True if user has a non-cancelled booking whose slot end is strictly in the past."""
+    if not user.is_authenticated:
+        return False
+    qs = Booking.objects.filter(client=user, master=master).exclude(status=Booking.Status.CANCELLED)
+    now = timezone.now()
+    tz = timezone.get_current_timezone()
+    for appointment_date, end_time in qs.values_list('appointment_date', 'end_time'):
+        end_dt = timezone.make_aware(datetime.combine(appointment_date, end_time), tz)
+        if end_dt < now:
+            return True
+    return False
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+def master_reviews(request, pk):
+    """
+    GET  /api/masters/<id>/reviews/ — list reviews + summary + can_review / your_review.
+    POST — create or update the current user's review (requires completed past booking).
+    """
+    master = get_object_or_404(Master, pk=pk)
+
+    if request.method == 'GET':
+        reviews_qs = (
+            MasterReview.objects.filter(master=master)
+            .select_related('author', 'author__profile')
+            .order_by('-created_at')
+        )
+        master.refresh_from_db(fields=['rating', 'review_count'])
+        cnt = master.review_count
+        average = None if cnt == 0 else round(float(master.rating), 2)
+
+        your_review = None
+        can_review = False
+        if request.user.is_authenticated:
+            your_review = MasterReview.objects.filter(master=master, author=request.user).first()
+            is_own_master = Master.objects.filter(pk=master.pk, user=request.user).exists()
+            can_review = not is_own_master and _user_has_completed_past_booking(request.user, master)
+
+        return Response(
+            {
+                'results': MasterReviewReadSerializer(reviews_qs, many=True).data,
+                'count': cnt,
+                'average': average,
+                'can_review': can_review,
+                'your_review': MasterReviewReadSerializer(your_review).data if your_review else None,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    if not request.user.is_authenticated:
+        return Response({'error': 'Authentication required.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    if Master.objects.filter(pk=master.pk, user=request.user).exists():
+        return Response({'error': 'You cannot review your own profile.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    write = MasterReviewWriteSerializer(data=request.data)
+    if not write.is_valid():
+        return Response(write.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    if not _user_has_completed_past_booking(request.user, master):
+        return Response(
+            {'error': 'You can only leave a review after a completed visit with this master.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    rating = write.validated_data['rating']
+    comment = (write.validated_data.get('comment') or '').strip()
+
+    try:
+        MasterReview.objects.update_or_create(
+            author=request.user,
+            master=master,
+            defaults={'rating': rating, 'comment': comment},
+        )
+    except DatabaseError:
+        logger.exception('master review save')
+        return Response({'detail': 'Database error while saving review.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    master.refresh_from_db(fields=['rating', 'review_count'])
+
+    your = MasterReview.objects.filter(master=master, author=request.user).first()
+    is_own_master = Master.objects.filter(pk=master.pk, user=request.user).exists()
+    can_review = not is_own_master and _user_has_completed_past_booking(request.user, master)
+
+    reviews_qs = (
+        MasterReview.objects.filter(master=master)
+        .select_related('author', 'author__profile')
+        .order_by('-created_at')
+    )
+    cnt = master.review_count
+    average = None if cnt == 0 else round(float(master.rating), 2)
+
+    return Response(
+        {
+            'results': MasterReviewReadSerializer(reviews_qs, many=True).data,
+            'count': cnt,
+            'average': average,
+            'can_review': can_review,
+            'your_review': MasterReviewReadSerializer(your).data if your else None,
+        },
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(['GET', 'PATCH'])

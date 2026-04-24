@@ -19,13 +19,15 @@ from django.core.exceptions import ImproperlyConfigured
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load .env from project root (beauty_app_backend/, same folder as manage.py)
+# Load .env from project root (beauty_app_backend/, same folder as manage.py).
+# Requires: pip install python-dotenv (listed in requirements.txt).
+_ENV_FILE = BASE_DIR / '.env'
 try:
     from dotenv import load_dotenv
 
-    load_dotenv(BASE_DIR / '.env', encoding='utf-8')
+    load_dotenv(_ENV_FILE, encoding='utf-8')
 except ImportError:
-    pass
+    load_dotenv = None  # type: ignore
 
 
 # Quick-start development settings - unsuitable for production
@@ -102,43 +104,34 @@ WSGI_APPLICATION = 'beauty_app_backend.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-# PostgreSQL — set POSTGRES_PASSWORD in beauty_app_backend/.env (see .env.example).
+# PostgreSQL only — set POSTGRES_PASSWORD in beauty_app_backend/.env (see .env.example).
 # Also accepts PGPASSWORD (same as the psql client).
-#
-# For one-off export from the old SQLite file (PowerShell), use UTF-8 + write
-# straight to a file (avoids Windows console "charmap" errors on emoji, etc.):
-#   $env:USE_SQLITE='1'
-#   $env:PYTHONUTF8='1'
-#   python manage.py dumpdata --natural-foreign --natural-primary -e contenttypes -e auth.Permission -e sessions --indent 2 -o backup.json
-#   Remove-Item Env:USE_SQLITE; Remove-Item Env:PYTHONUTF8
 
-if os.getenv('USE_SQLITE', '').strip().lower() in ('1', 'true', 'yes'):
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }
-else:
-    _POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD') or os.getenv('PGPASSWORD') or ''
-    if not _POSTGRES_PASSWORD:
-        raise ImproperlyConfigured(
-            'PostgreSQL password is missing. Add a line to '
-            f'{BASE_DIR / ".env"}:\n'
-            '  POSTGRES_PASSWORD=your_postgres_password\n'
-            '(same folder as manage.py). Or set PGPASSWORD in the environment.'
+_POSTGRES_PASSWORD = (os.getenv('POSTGRES_PASSWORD') or os.getenv('PGPASSWORD') or '').strip()
+if not _POSTGRES_PASSWORD:
+    _hints = [
+        f'Add to {_ENV_FILE}: POSTGRES_PASSWORD=… (same folder as manage.py), or set PGPASSWORD.',
+    ]
+    if load_dotenv is None:
+        _hints.append(
+            'The python-dotenv package is not installed, so .env is ignored. Run: pip install python-dotenv',
         )
+    elif _ENV_FILE.is_file():
+        _hints.append(
+            f'File {_ENV_FILE.name} exists — check the key is exactly POSTGRES_PASSWORD (no BOM), one line, no spaces around =.',
+        )
+    raise ImproperlyConfigured('PostgreSQL password is missing.\n' + '\n'.join(_hints))
 
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('POSTGRES_DB', 'beautydb'),
-            'USER': os.getenv('POSTGRES_USER', 'postgres'),
-            'PASSWORD': _POSTGRES_PASSWORD,
-            'HOST': os.getenv('POSTGRES_HOST', 'localhost'),
-            'PORT': os.getenv('POSTGRES_PORT', '5433'),
-        }
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('POSTGRES_DB', 'beautydb'),
+        'USER': os.getenv('POSTGRES_USER', 'postgres'),
+        'PASSWORD': _POSTGRES_PASSWORD,
+        'HOST': os.getenv('POSTGRES_HOST', 'localhost'),
+        'PORT': os.getenv('POSTGRES_PORT', '5433'),
     }
+}
 
 
 # Password validation

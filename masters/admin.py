@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Master, MasterService, MasterWeekTimetable, MasterWorkPhoto
+from .models import Master, MasterReview, MasterService, MasterWeekTimetable, MasterWorkPhoto
 
 
 class MasterWorkPhotoInline(admin.TabularInline):
@@ -32,7 +32,7 @@ class MasterWeekTimetableInline(admin.TabularInline):
 
 @admin.register(Master)
 class MasterAdmin(admin.ModelAdmin):
-    list_display = ('name', 'specialization', 'city', 'experience_years', 'rating', 'is_active', 'iban')
+    list_display = ('name', 'specialization', 'city', 'experience_years', 'rating', 'review_count', 'is_active', 'iban')
     list_filter = ('specialization', 'city', 'is_active')
     search_fields = ('name', 'specialization', 'city')
     inlines = [MasterWorkPhotoInline, MasterServiceInline, MasterWeekTimetableInline]
@@ -57,3 +57,10 @@ class MasterServiceAdmin(admin.ModelAdmin):
 class MasterWorkPhotoAdmin(admin.ModelAdmin):
     list_display = ('master', 'caption', 'uploaded_at')
     list_filter = ('master',)
+
+
+@admin.register(MasterReview)
+class MasterReviewAdmin(admin.ModelAdmin):
+    list_display = ('master', 'author', 'rating', 'created_at')
+    list_filter = ('master', 'rating')
+    search_fields = ('master__name', 'author__username', 'comment')
