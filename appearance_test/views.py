@@ -1,7 +1,8 @@
 import json
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from appearance_test.constants import COLOR_PALETTES, BODY_SHAPES
+from appearance_test.constants import BODY_SHAPES, COLOR_PALETTES
+from appearance_test.recommendations_lookup import build_api_payload, lookup_row
 
 def analyze_color_type(client):
     """Determines season (Winter, Summer, Autumn, Spring)"""
@@ -157,14 +158,15 @@ def client_analysis_view(request):
 def analyse_appearance_view(request):
     """
     POST /api/appearance_test/analyse/
+    Values must match recommendations.csv labels exactly.
+
     Body (JSON):
-      undertone       – "warm" | "cool" | "neutral" | "olive"
-      hair_color      – e.g. "blonde", "red", "light brown", "dark brown", "black"
-      eyes_color      – e.g. "light blue", "green", "brown", "hazel", "light grey"
-      tanning_reaction – "tans easily" | "burns then tans" | "burns easily"
-      bust            – integer (cm)
-      waist           – integer (cm)
-      hips            – integer (cm)
+      hair_color       — e.g. "Black", "Blonde"
+      eyes_color       — e.g. "Brown", "Light Blue"
+      skin_tone        — e.g. "Very Fair", "Medium"
+      undertone        — "Warm" | "Cool" | "Neutral"
+      torso_length     — "Short Torso" | "Long Torso" | "Balanced"
+      body_proportion  — e.g. "Hourglass", "Inverted Triangle"
     """
     if request.method != 'POST':
         return JsonResponse({"error": "POST required"}, status=405)
@@ -174,41 +176,33 @@ def analyse_appearance_view(request):
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-    # Convert numeric fields safely
-    try:
-        data['bust'] = int(data.get('bust', 0))
-        data['waist'] = int(data.get('waist', 0))
-        data['hips'] = int(data.get('hips', 0))
-    except (TypeError, ValueError):
-        return JsonResponse({"error": "bust/waist/hips must be integers"}, status=400)
+    required = (
+        'hair_color',
+        'eyes_color',
+        'skin_tone',
+        'undertone',
+        'torso_length',
+        'body_proportion',
+    )
+    missing = [k for k in required if not str(data.get(k, '')).strip()]
+    if missing:
+        return JsonResponse({'error': 'Missing fields', 'missing': missing}, status=400)
 
-    color_season = analyze_color_type(data)
-    body_shape = analyze_body_shape(data)
+    inputs = {k: str(data[k]).strip() for k in required}
 
-    color_info = COLOR_PALETTES.get(color_season, {})
-    body_info = BODY_SHAPES.get(body_shape, {})
+    row = lookup_row(
+        inputs['hair_color'],
+        inputs['eyes_color'],
+        inputs['skin_tone'],
+        inputs['undertone'],
+        inputs['torso_length'],
+        inputs['body_proportion'],
+    )
+    if row is None:
+        return JsonResponse(
+            {'error': 'No matching recommendation row for this combination.'},
+            status=404,
+        )
 
-    result = {
-        "analysis_result": {
-            "color_type": {
-                "season": color_season,
-                "description": color_info.get("description"),
-                "palette": color_info.get("palette_hex"),
-                "advice": {
-                    "best_colors": color_info.get("best_colors"),
-                    "least_colors": color_info.get("least_colors")
-                }
-            },
-            "body_type": {
-                "shape": body_shape,
-                "description": body_info.get("description"),
-                "advice": {
-                    "best_clothes": body_info.get("best_clothes"),
-                    "avoid_clothes": body_info.get("avoid_clothes")
-                }
-            }
-        },
-        "look_alike_style": f"Style based on {color_season} colors and {body_shape} lines."
-    }
-
-    return JsonResponse(result, safe=False)
+    payload = build_api_payload(row, inputs)
+    return JsonResponse(payload, safe=False)
