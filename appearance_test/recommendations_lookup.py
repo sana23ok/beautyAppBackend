@@ -86,7 +86,7 @@ def build_api_payload(row: dict[str, str], inputs: dict[str, str]) -> dict:
     undertone = inputs["undertone"]
     palette_hex = _fallback_palette_hex(undertone)
     wheel = row.get("Recommended Clothing Color Wheel Region", "")
-    season_label = wheel.split("(")[0].strip() if wheel else undertone.title()
+    season_label = row.get("Seasonal Color Type", "").strip() or undertone.title()
 
     best_colors = split_list_field(row.get("Recommended Clothing Colors", ""))
     avoid_colors = split_list_field(row.get("Avoid Clothing Colors", ""))

@@ -154,6 +154,112 @@ def client_analysis_view(request):
     return JsonResponse(result, safe=False)
 
 
+def _calculate_body_shape(bust: int, waist: int, hips: int) -> str:
+    """Calculate body shape from measurements."""
+    if bust == 0 or hips == 0:
+        return None
+
+    bust_hip_ratio = bust / hips
+    waist_hip_ratio = waist / hips
+
+    if bust_hip_ratio >= 1.05:
+        return "Inverted Triangle"
+    elif bust_hip_ratio <= 0.90:
+        return "Triangle"
+    elif waist_hip_ratio < 0.75:
+        return "Hourglass"
+    elif waist_hip_ratio > 0.85 and 0.95 <= bust_hip_ratio <= 1.05:
+        return "Apple"
+    elif waist_hip_ratio > 0.80:
+        return "Rectangle"
+    else:
+        return "Trapezoid"
+
+
+def _get_recommended_masters(preferred_style: str = None, goals: list = None) -> list:
+    """
+    Get recommended masters based on user preferences and goals.
+
+    Algorithm:
+    1. If preferred_style provided, search for masters with that keyword in description
+    2. Based on goals:
+       - hairstyle -> hairdressers, hair stylists
+       - style -> stylists
+       - makeup -> makeup artists, визажисти
+       - nails -> nail masters
+       - overall -> mix of specialists
+    3. Fallback: first 3 active masters
+    """
+    from django.db.models import Q
+    from masters.models import Master
+
+    base_qs = Master.objects.filter(is_active=True).select_related('user')
+
+    goal_keywords = {
+        'hairstyle': ['hair', 'перукар', 'hairdresser', 'барбер', 'стрижка', 'зачіска'],
+        'style': ['стиліст', 'stylist', 'імідж', 'image', 'стиль'],
+        'makeup': ['візаж', 'makeup', 'макіяж', 'мейкап', 'візажист'],
+        'nails': ['манікюр', 'nail', 'педикюр', 'нігт', 'manicure'],
+        'overall': ['стиліст', 'візаж', 'манікюр', 'hair', 'beauty'],
+    }
+
+    style_keywords = {
+        'vintage': ['вінтаж', 'vintage', 'ретро', 'retro', 'класик'],
+        'street': ['street', 'вуличн', 'casual', 'кежуал'],
+        'classic': ['класик', 'classic', 'елегант', 'elegant'],
+        'minimalist': ['мінімал', 'minimal', 'простий', 'simple'],
+        'bohemian': ['бохо', 'boho', 'етно', 'hippie'],
+        'sporty': ['спорт', 'sport', 'фітнес', 'fitness', 'активн'],
+        'glamorous': ['гламур', 'glamour', 'люкс', 'luxury', 'шик'],
+        'romantic': ['романт', 'romantic', 'ніжн', 'feminine'],
+    }
+
+    found_masters = []
+
+    if preferred_style:
+        style_lower = preferred_style.lower()
+        keywords = style_keywords.get(style_lower, [style_lower])
+        style_filter = Q()
+        for kw in keywords:
+            style_filter |= Q(description__icontains=kw) | Q(specialization__icontains=kw)
+        style_masters = list(base_qs.filter(style_filter).distinct()[:3])
+        found_masters.extend(style_masters)
+
+    if goals:
+        for goal in goals:
+            if len(found_masters) >= 3:
+                break
+            keywords = goal_keywords.get(goal, [])
+            if not keywords:
+                continue
+            goal_filter = Q()
+            for kw in keywords:
+                goal_filter |= Q(description__icontains=kw) | Q(specialization__icontains=kw)
+            goal_masters = list(base_qs.filter(goal_filter).exclude(
+                id__in=[m.id for m in found_masters]
+            ).distinct()[:2])
+            found_masters.extend(goal_masters)
+
+    if len(found_masters) < 3:
+        remaining = 3 - len(found_masters)
+        fallback = list(base_qs.exclude(
+            id__in=[m.id for m in found_masters]
+        ).order_by('-rating')[:remaining])
+        found_masters.extend(fallback)
+
+    result = []
+    for m in found_masters[:3]:
+        result.append({
+            'id': m.id,
+            'name': m.name,
+            'specialization': m.specialization,
+            'profile_photo': m.profile_photo or '',
+            'rating': float(m.rating),
+            'city': m.city or '',
+        })
+    return result
+
+
 @csrf_exempt
 def analyse_appearance_view(request):
     """
@@ -167,6 +273,9 @@ def analyse_appearance_view(request):
       undertone        — "Warm" | "Cool" | "Neutral"
       torso_length     — "Short Torso" | "Long Torso" | "Balanced"
       body_proportion  — e.g. "Hourglass", "Inverted Triangle"
+      preferred_style  — (optional) e.g. "vintage", "classic", "street"
+      goals            — (optional) list, e.g. ["hairstyle", "makeup"]
+      body_measurements — (optional) {"bust": 90, "waist": 70, "hips": 95}
     """
     if request.method != 'POST':
         return JsonResponse({"error": "POST required"}, status=405)
@@ -190,6 +299,17 @@ def analyse_appearance_view(request):
 
     inputs = {k: str(data[k]).strip() for k in required}
 
+    calculated_body_shape = None
+    body_measurements = data.get('body_measurements')
+    if body_measurements:
+        bust = body_measurements.get('bust') or 0
+        waist = body_measurements.get('waist') or 0
+        hips = body_measurements.get('hips') or 0
+        if bust > 0 and waist > 0 and hips > 0:
+            calculated_body_shape = _calculate_body_shape(bust, waist, hips)
+            if calculated_body_shape:
+                inputs['body_proportion'] = calculated_body_shape
+
     row = lookup_row(
         inputs['hair_color'],
         inputs['eyes_color'],
@@ -205,4 +325,13 @@ def analyse_appearance_view(request):
         )
 
     payload = build_api_payload(row, inputs)
+
+    preferred_style = data.get('preferred_style')
+    goals = data.get('goals')
+    recommended_masters = _get_recommended_masters(preferred_style, goals)
+    payload['recommended_masters'] = recommended_masters
+
+    if calculated_body_shape:
+        payload['calculated_body_shape'] = calculated_body_shape
+
     return JsonResponse(payload, safe=False)
