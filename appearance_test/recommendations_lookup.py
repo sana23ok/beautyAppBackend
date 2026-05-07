@@ -123,6 +123,7 @@ def build_api_payload(row: dict[str, str], inputs: dict[str, str]) -> dict:
                     row.get("Recommended Patterns", ""),
                     row.get("Recommended Jewelry Metal", ""),
                     row.get("Recommended Shoes", ""),
+                    row.get("Do Exaggerate", ""),
                 ],
                 "avoid_clothes": [
                     row.get("Avoid Clothing Colors", ""),
