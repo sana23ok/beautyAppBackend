@@ -30,6 +30,16 @@ class Conversation(models.Model):
 
 class Message(models.Model):
     """A single message in a conversation."""
+    MESSAGE_TEXT = 'text'
+    MESSAGE_IMAGE = 'image'
+    MESSAGE_VIDEO = 'video'
+
+    MESSAGE_TYPE_CHOICES = (
+        (MESSAGE_TEXT, MESSAGE_TEXT),
+        (MESSAGE_IMAGE, MESSAGE_IMAGE),
+        (MESSAGE_VIDEO, MESSAGE_VIDEO),
+    )
+
     conversation = models.ForeignKey(
         Conversation,
         on_delete=models.CASCADE,
@@ -40,7 +50,13 @@ class Message(models.Model):
         on_delete=models.CASCADE,
         related_name='sent_messages',
     )
-    text = models.TextField()
+    message_type = models.CharField(
+        max_length=10,
+        choices=MESSAGE_TYPE_CHOICES,
+        default=MESSAGE_TEXT,
+    )
+    text = models.TextField(blank=True, default='')
+    media_url = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     is_read = models.BooleanField(default=False)
 
@@ -48,4 +64,5 @@ class Message(models.Model):
         ordering = ['created_at']
 
     def __str__(self):
-        return f"Message from {self.sender.username}: {self.text[:30]}..."
+        preview = (self.text[:30] if self.text else self.media_url[:30]) or '…'
+        return f"Message from {self.sender.username}: {preview}..."

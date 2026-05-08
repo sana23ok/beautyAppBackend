@@ -53,7 +53,10 @@ class MessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Message
-        fields = ('id', 'conversation', 'sender_id', 'text', 'created_at', 'is_read', 'is_from_me')
+        fields = (
+            'id', 'conversation', 'sender_id', 'message_type', 'text',
+            'media_url', 'created_at', 'is_read', 'is_from_me',
+        )
         read_only_fields = ('id', 'sender_id', 'created_at', 'is_from_me')
 
     def get_is_from_me(self, obj):
@@ -84,7 +87,13 @@ class ConversationListSerializer(serializers.ModelSerializer):
 
     def get_last_message(self, obj):
         last_msg = obj.messages.order_by('-created_at').first()
-        return last_msg.text if last_msg else ''
+        if not last_msg:
+            return ''
+        if last_msg.message_type == Message.MESSAGE_VIDEO:
+            return '[Video]'
+        if last_msg.message_type == Message.MESSAGE_IMAGE:
+            return '[Photo]'
+        return last_msg.text
 
     def get_last_message_time(self, obj):
         last_msg = obj.messages.order_by('-created_at').first()
@@ -124,7 +133,35 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
 
 class SendMessageSerializer(serializers.Serializer):
     """Serializer for sending a new message."""
-    text = serializers.CharField(max_length=5000)
+    text = serializers.CharField(max_length=5000, required=False, allow_blank=True, default='')
+    message_type = serializers.ChoiceField(
+        choices=(Message.MESSAGE_TEXT, Message.MESSAGE_IMAGE, Message.MESSAGE_VIDEO),
+        default=Message.MESSAGE_TEXT,
+    )
+    media_url = serializers.CharField(max_length=2048, required=False, allow_blank=True, default='')
+
+    def validate(self, attrs):
+        text = attrs.get('text', '') or ''
+        text = text.strip()
+        attrs['text'] = text
+        mt = attrs.get('message_type') or Message.MESSAGE_TEXT
+        media_url = (attrs.get('media_url') or '').strip()
+
+        if mt == Message.MESSAGE_TEXT:
+            if not text:
+                raise serializers.ValidationError(
+                    {'text': 'Required for plain text messages.'},
+                )
+            attrs['media_url'] = ''
+        else:
+            if not media_url:
+                raise serializers.ValidationError(
+                    {'media_url': 'Required for image/video messages.'},
+                )
+            attrs['media_url'] = media_url
+            if text and len(text) > 5000:
+                raise serializers.ValidationError({'text': 'Caption too long.'})
+        return attrs
 
 
 class StartConversationSerializer(serializers.Serializer):

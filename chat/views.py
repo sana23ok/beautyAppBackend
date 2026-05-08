@@ -1,3 +1,7 @@
+import logging
+import os
+
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Prefetch
 from rest_framework import status
@@ -15,6 +19,17 @@ from .serializers import (
 )
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+# Dedicated Cloudinary directory for chat photos and videos.
+CHAT_MEDIA_CLOUDINARY_FOLDER = 'beauty_app/chat_media'
+
+IMAGE_TYPES = frozenset(
+    ('image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic'),
+)
+VIDEO_TYPES = frozenset(
+    ('video/mp4', 'video/quicktime', 'video/webm', 'video/3gpp'),
+)
 
 
 def _users_with_avatar_relations():
@@ -159,7 +174,9 @@ def conversation_messages(request, pk):
         message = Message.objects.create(
             conversation=conversation,
             sender=request.user,
+            message_type=serializer.validated_data['message_type'],
             text=serializer.validated_data['text'],
+            media_url=serializer.validated_data.get('media_url', ''),
         )
         conversation.save()
 
@@ -209,3 +226,100 @@ def mark_messages_read(request, pk):
     ).update(is_read=True)
 
     return Response({'marked_read': count}, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def conversation_upload_media(request, pk):
+    """
+    POST /api/chat/conversations/<id>/media/
+    multipart/form-data: field "file" — image or short video.
+
+    Uploads to Cloudinary under beauty_app/chat_media/.
+
+    Response: {"url": "<secure_url>", "message_type": "image"|"video"}
+    """
+    try:
+        conversation = Conversation.objects.get(pk=pk, participants=request.user)
+    except Conversation.DoesNotExist:
+        return Response(
+            {'error': 'Conversation not found.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    upload = request.FILES.get('file')
+    if not upload:
+        return Response(
+            {'error': 'No file provided. Use form field "file".'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    ctype = (upload.content_type or '').strip()
+    if ctype in IMAGE_TYPES:
+        resource_type = 'image'
+        message_type = Message.MESSAGE_IMAGE
+        max_size = 15 * 1024 * 1024
+        err_size = '15 MB'
+    elif ctype in VIDEO_TYPES:
+        resource_type = 'video'
+        message_type = Message.MESSAGE_VIDEO
+        max_size = 80 * 1024 * 1024
+        err_size = '80 MB'
+    else:
+        allowed = sorted(IMAGE_TYPES | VIDEO_TYPES)
+        return Response(
+            {'error': f'Unsupported type. Allowed MIME types include: {", ".join(allowed)}'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if upload.size > max_size:
+        return Response(
+            {'error': f'File too large. Maximum size for this type is {err_size}.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    cloud_name = getattr(settings, 'CLOUDINARY_CLOUD_NAME', '') or ''
+    api_key = getattr(settings, 'CLOUDINARY_API_KEY', '') or ''
+    api_secret = getattr(settings, 'CLOUDINARY_API_SECRET', '') or ''
+    cloudinary_url = getattr(settings, 'CLOUDINARY_URL', '') or os.getenv('CLOUDINARY_URL', '')
+    if not all([cloud_name, api_key, api_secret]) and not cloudinary_url:
+        return Response(
+            {'error': 'Cloudinary is not configured on the server.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    try:
+        import cloudinary
+        import cloudinary.uploader
+
+        if cloudinary_url:
+            os.environ['CLOUDINARY_URL'] = cloudinary_url
+            cloudinary.config()
+        else:
+            cloudinary.config(
+                cloud_name=cloud_name,
+                api_key=api_key,
+                api_secret=api_secret,
+            )
+
+        result = cloudinary.uploader.upload(
+            upload,
+            folder=CHAT_MEDIA_CLOUDINARY_FOLDER,
+            asset_folder=CHAT_MEDIA_CLOUDINARY_FOLDER,
+            resource_type=resource_type,
+        )
+        url = result.get('secure_url') or result.get('url', '')
+        if not url:
+            return Response(
+                {'error': 'Cloudinary did not return a URL.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    except Exception as exc:
+        logger.exception('Failed to upload chat media to Cloudinary')
+        return Response(
+            {'error': f'Upload failed: {exc}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response({'url': url, 'message_type': message_type}, status=status.HTTP_201_CREATED)
