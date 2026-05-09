@@ -1,8 +1,14 @@
+import hashlib
 import os
+import random
+from datetime import timedelta
 
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
+from django.db import transaction
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -14,12 +20,13 @@ from google.auth.transport import requests as google_requests
 
 from masters.models import Master
 
-from .models import Client, UserProfile
+from .models import Client, EmailVerificationCode, UserProfile
 from .serializers import (
     ClientSerializer,
     GoogleAuthSerializer,
     LoginSerializer,
     RegisterSerializer,
+    SendVerificationCodeSerializer,
     UserUpdateSerializer,
     UserSerializer,
 )
@@ -63,7 +70,129 @@ def _ensure_client_profile(user):
     return client
 
 
+def _hash_verification_code(email, code):
+    payload = f'{settings.SECRET_KEY}:{email.lower()}:{code}'
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
+def _verification_email_html(code):
+    return f"""
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#F0F9E8;font-family:Arial,Helvetica,sans-serif;color:#3D5A1E;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F0F9E8;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border-radius:28px;overflow:hidden;box-shadow:0 16px 38px rgba(96,166,31,0.18);">
+            <tr>
+              <td style="background:linear-gradient(135deg,#FBA685 0%,#F65368 48%,#BFE97B 100%);padding:38px 28px;text-align:center;">
+                <div style="font-size:30px;line-height:36px;font-weight:700;color:#ffffff;">BeautyApp</div>
+                <div style="margin-top:8px;font-size:15px;color:#ffffff;opacity:.95;">Confirm your email address</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:34px 30px 12px;text-align:center;">
+                <div style="font-size:20px;font-weight:700;color:#3D5A1E;">Your verification code</div>
+                <div style="margin:20px auto 18px;padding:18px 22px;display:inline-block;border-radius:22px;background:#ECEDDF;color:#60A61F;font-size:34px;font-weight:800;letter-spacing:8px;">
+                  {code}
+                </div>
+                <div style="font-size:15px;line-height:24px;color:#5F7D3B;">
+                  Enter this 6-digit code in the app to finish creating your account.
+                  The code is valid for 10 minutes.
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 30px 34px;text-align:center;">
+                <div style="border-top:1px solid #E3DAB7;padding-top:18px;font-size:12px;line-height:18px;color:#B4BD9A;">
+                  If you did not request this, you can safely ignore this email.
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
+
+
+def _send_verification_email(email, code):
+    if not settings.EMAIL_HOST or not settings.EMAIL_HOST_USER or not settings.EMAIL_HOST_PASSWORD:
+        raise RuntimeError('Email SMTP is not configured on the server.')
+
+    text_body = (
+        f'Your BeautyApp verification code is {code}. '
+        'Enter it in the app to finish registration. The code is valid for 10 minutes.'
+    )
+    message = EmailMultiAlternatives(
+        subject='BeautyApp verification code',
+        body=text_body,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[email],
+    )
+    message.attach_alternative(_verification_email_html(code), 'text/html')
+    message.send(fail_silently=False)
+
+
+def _verify_registration_code(email, code):
+    verification = EmailVerificationCode.objects.filter(email=email.lower()).first()
+    if verification is None:
+        return False, 'Verification code was not requested for this email.'
+    if verification.is_expired():
+        verification.delete()
+        return False, 'Verification code has expired. Please request a new one.'
+    if verification.attempts >= 5:
+        verification.delete()
+        return False, 'Too many incorrect attempts. Please request a new code.'
+
+    expected_hash = _hash_verification_code(email, code)
+    if verification.code_hash != expected_hash:
+        verification.attempts += 1
+        verification.save(update_fields=['attempts', 'updated_at'])
+        return False, 'Invalid verification code.'
+
+    return True, ''
+
+
 # ── Register ──────────────────────────────────────────────────────────────────
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def send_verification_code(request):
+    """
+    Validate registration data and send a 6-digit email verification code.
+    """
+    serializer = SendVerificationCodeSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    email = serializer.validated_data['email']
+    code = f'{random.SystemRandom().randint(0, 999999):06d}'
+    expires_at = timezone.now() + timedelta(minutes=10)
+
+    try:
+        _send_verification_email(email, code)
+    except Exception as exc:
+        return Response(
+            {'error': f'Could not send verification email: {exc}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    EmailVerificationCode.objects.update_or_create(
+        email=email,
+        defaults={
+            'code_hash': _hash_verification_code(email, code),
+            'expires_at': expires_at,
+            'attempts': 0,
+        },
+    )
+    return Response(
+        {'message': 'Verification code sent. Please check your email.'},
+        status=status.HTTP_200_OK,
+    )
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -84,7 +213,16 @@ def register(request):
     if not serializer.is_valid():
         return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-    user = serializer.save()
+    email = serializer.validated_data['email']
+    code = serializer.validated_data['verification_code']
+    code_is_valid, error_message = _verify_registration_code(email, code)
+    if not code_is_valid:
+        return Response({'error': error_message}, status=status.HTTP_400_BAD_REQUEST)
+
+    with transaction.atomic():
+        user = serializer.save()
+        EmailVerificationCode.objects.filter(email=email).delete()
+
     return Response(_auth_response(user), status=status.HTTP_201_CREATED)
 
 

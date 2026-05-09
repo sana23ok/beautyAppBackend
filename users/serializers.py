@@ -71,6 +71,7 @@ class UserSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
     password = serializers.CharField(write_only=True, required=True)
+    verification_code = serializers.CharField(write_only=True, required=True, min_length=6, max_length=6)
     first_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
     phone_number = serializers.CharField(required=False, allow_blank=True)
@@ -85,7 +86,13 @@ class RegisterSerializer(serializers.Serializer):
         validate_password(value)
         return value
 
+    def validate_verification_code(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError('Verification code must contain 6 digits.')
+        return value
+
     def create(self, validated_data):
+        validated_data.pop('verification_code', None)
         phone_number = validated_data.pop('phone_number', '')
         is_master = validated_data.pop('is_master', False)
         user = User.objects.create_user(
@@ -114,6 +121,24 @@ class RegisterSerializer(serializers.Serializer):
                 profile_photo='',
             )
         return user
+
+
+class SendVerificationCodeSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+    password = serializers.CharField(write_only=True, required=True)
+    first_name = serializers.CharField(required=False, allow_blank=True)
+    last_name = serializers.CharField(required=False, allow_blank=True)
+    phone_number = serializers.CharField(required=False, allow_blank=True)
+    is_master = serializers.BooleanField(required=False, default=False)
+
+    def validate_email(self, value):
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError('A user with this email already exists.')
+        return value.lower()
+
+    def validate_password(self, value):
+        validate_password(value)
+        return value
 
 
 class LoginSerializer(serializers.Serializer):

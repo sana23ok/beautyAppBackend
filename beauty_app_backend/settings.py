@@ -199,6 +199,23 @@ SIMPLE_JWT = {
 GOOGLE_CLIENT_ID = os.getenv('WEB_CLIENT_ID', '')
 GOOGLE_CLIENT_SECRET = os.getenv('WEB_CLIENT_SECRET', '')
 
+# --- Email / SMTP ---
+# Gmail example:
+# EMAIL_HOST=smtp.gmail.com
+# EMAIL_PORT=587
+# EMAIL_USE_TLS=True
+# EMAIL_HOST_USER=your@gmail.com
+# EMAIL_HOST_PASSWORD=your_google_app_password
+# DEFAULT_FROM_EMAIL=your@gmail.com
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
+EMAIL_HOST = os.getenv('EMAIL_HOST', '')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() in ('1', 'true', 'yes', 'on')
+EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'False').lower() in ('1', 'true', 'yes', 'on')
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
+
 # --- Cloudinary (profile photo upload) ---
 # Set CLOUDINARY_* in beauty_app_backend/.env (see .env.example; .env is gitignored).
 CLOUDINARY_STORAGE = {

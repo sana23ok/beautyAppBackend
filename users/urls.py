@@ -6,6 +6,7 @@ app_name = 'users'
 
 urlpatterns = [
     # ── Auth ──────────────────────────────────────────────────────────────────
+    path('api/auth/register/send-code/', views.send_verification_code, name='auth_register_send_code'),
     path('api/auth/register/', views.register, name='auth_register'),
     path('api/auth/login/', views.login, name='auth_login'),
     path('api/auth/google/', views.google_auth, name='auth_google'),

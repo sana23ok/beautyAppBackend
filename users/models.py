@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 
 class UserProfile(models.Model):
@@ -10,6 +11,21 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f'Profile({self.user.email})'
+
+
+class EmailVerificationCode(models.Model):
+    email = models.EmailField(unique=True)
+    code_hash = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def is_expired(self):
+        return timezone.now() >= self.expires_at
+
+    def __str__(self):
+        return f'EmailVerificationCode({self.email})'
 
 
 class Client(models.Model):
