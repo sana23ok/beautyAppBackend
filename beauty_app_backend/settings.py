@@ -192,7 +192,12 @@ SIMPLE_JWT = {
 }
 
 # --- Google OAuth ---
-GOOGLE_CLIENT_ID = os.getenv('GOOGLE_WEB_CLIENT_ID', '')
+# WEB_CLIENT_ID — OAuth 2.0 Web application client ID from Google Cloud Console.
+# Used to verify idTokens issued by Google Sign-In on Android (and any web flow).
+# WEB_CLIENT_SECRET is only required for server-side authorization-code exchange,
+# which the current Android idToken flow does not use; kept for future web flows.
+GOOGLE_CLIENT_ID = os.getenv('WEB_CLIENT_ID', '')
+GOOGLE_CLIENT_SECRET = os.getenv('WEB_CLIENT_SECRET', '')
 
 # --- Cloudinary (profile photo upload) ---
 # Set CLOUDINARY_* in beauty_app_backend/.env (see .env.example; .env is gitignored).
