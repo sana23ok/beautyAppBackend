@@ -211,3 +211,7 @@ class UserUpdateSerializer(serializers.Serializer):
         client.save()
 
         return instance
+
+
+class FavoriteToggleSerializer(serializers.Serializer):
+    master_id = serializers.IntegerField(min_value=1)

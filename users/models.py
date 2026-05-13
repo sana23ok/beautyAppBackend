@@ -75,3 +75,27 @@ class Client(models.Model):
     waist = models.IntegerField(null=True)
     hips = models.IntegerField(null=True)
     leg_length_ratio = models.CharField(max_length=255, blank=True)
+
+
+class FavoriteMaster(models.Model):
+    """Client user marks masters as favorites; persisted server-side."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='favorite_masters')
+    master = models.ForeignKey(
+        'masters.Master',
+        on_delete=models.CASCADE,
+        related_name='favorited_by',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'master'],
+                name='users_favoritemaster_user_master_uniq',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.user_id} ♥ {self.master_id}'

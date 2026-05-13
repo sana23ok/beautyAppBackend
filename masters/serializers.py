@@ -95,6 +95,47 @@ class MasterReviewWriteSerializer(serializers.Serializer):
     comment = serializers.CharField(max_length=2000, allow_blank=True, default='')
 
 
+class MasterPublicCardSerializer(serializers.ModelSerializer):
+    """
+    Compact master JSON for lists (search, favorites) — matches the mobile Specialist model
+    without nested work_photos / week_timetables / services.
+    """
+
+    user_id = serializers.PrimaryKeyRelatedField(source='user', read_only=True, allow_null=True)
+    profile_photo = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Master
+        fields = (
+            'id',
+            'user_id',
+            'name',
+            'specialization',
+            'city',
+            'address',
+            'experience_years',
+            'description',
+            'profile_photo',
+            'rating',
+            'review_count',
+            'is_active',
+        )
+        read_only_fields = ('id', 'rating', 'review_count')
+
+    def get_profile_photo(self, obj):
+        if obj.profile_photo:
+            return obj.profile_photo
+        user = obj.user
+        if user is None:
+            return ''
+        try:
+            if user.profile.avatar:
+                return user.profile.avatar
+        except ObjectDoesNotExist:
+            pass
+        return ''
+
+
 class MasterSerializer(serializers.ModelSerializer):
     """Read serializer — returns full master profile with nested work photos and services."""
     work_photos = MasterWorkPhotoSerializer(many=True, read_only=True)

@@ -19,10 +19,12 @@ from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
 from masters.models import Master
+from masters.serializers import MasterPublicCardSerializer
 
-from .models import Client, EmailVerificationCode, UserProfile
+from .models import Client, EmailVerificationCode, FavoriteMaster, UserProfile
 from .serializers import (
     ClientSerializer,
+    FavoriteToggleSerializer,
     GoogleAuthSerializer,
     LoginSerializer,
     RegisterSerializer,
@@ -604,3 +606,54 @@ def my_client_profile(request):
             return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# ── Favorite masters (authenticated) ──────────────────────────────────────────
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def favorite_masters_list(request):
+    """
+    GET /api/auth/favorite-masters/
+    Returns favorited masters for the current user (newest first).
+    """
+    favs = FavoriteMaster.objects.filter(user=request.user).select_related('master', 'master__user').order_by(
+        '-created_at',
+    )
+    masters = [f.master for f in favs if f.master.is_active]
+    return Response(MasterPublicCardSerializer(masters, many=True).data, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def favorite_masters_toggle(request):
+    """
+    POST /api/auth/favorite-masters/toggle/
+    Body: { \"master_id\": <int> }
+    Response: { \"is_favorite\": true|false }
+    """
+    ser = FavoriteToggleSerializer(data=request.data)
+    if not ser.is_valid():
+        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+    master_id = ser.validated_data['master_id']
+    try:
+        master = Master.objects.get(pk=master_id, is_active=True)
+    except Master.DoesNotExist:
+        return Response({'detail': 'Master not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        fav = FavoriteMaster.objects.get(user=request.user, master=master)
+    except FavoriteMaster.DoesNotExist:
+        FavoriteMaster.objects.create(user=request.user, master=master)
+        return Response({'is_favorite': True}, status=status.HTTP_200_OK)
+    fav.delete()
+    return Response({'is_favorite': False}, status=status.HTTP_200_OK)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def favorite_masters_delete(request, master_id):
+    """DELETE /api/auth/favorite-masters/<master_id>/ — remove from favorites."""
+    FavoriteMaster.objects.filter(user=request.user, master_id=master_id).delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)

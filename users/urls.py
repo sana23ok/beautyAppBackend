@@ -14,6 +14,13 @@ urlpatterns = [
     path('api/auth/me/', views.me, name='auth_me'),
     path('api/auth/become_master/', views.become_master, name='auth_become_master'),
     path('api/auth/upload_avatar/', views.upload_avatar, name='upload_avatar'),
+    path('api/auth/favorite-masters/', views.favorite_masters_list, name='favorite_masters_list'),
+    path('api/auth/favorite-masters/toggle/', views.favorite_masters_toggle, name='favorite_masters_toggle'),
+    path(
+        'api/auth/favorite-masters/<int:master_id>/',
+        views.favorite_masters_delete,
+        name='favorite_masters_delete',
+    ),
 
     # ── Users list ────────────────────────────────────────────────────────────
     path('api/users/', views.users_list, name='users_list'),
