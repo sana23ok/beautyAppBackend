@@ -7,7 +7,7 @@ from pathlib import Path
 
 from appearance_test.constants import COLOR_PALETTES
 
-CSV_PATH = Path(__file__).resolve().parent.parent / "recommendations.csv"
+CSV_PATH = Path(__file__).resolve().parent.parent / "recommendations_final.csv"
 
 _KEY_FIELDS = [
     "Hair Color",
@@ -19,6 +19,11 @@ _KEY_FIELDS = [
 ]
 
 _LOOKUP: dict[tuple[str, ...], dict[str, str]] | None = None
+
+
+def reset_lookup() -> None:
+    global _LOOKUP
+    _LOOKUP = None
 
 
 def _normalize(value: str) -> str:
@@ -76,9 +81,12 @@ def lookup_row(
 
 
 def split_list_field(text: str) -> list[str]:
+    """Split comma-separated colour list, ignoring commas inside parentheses."""
+    import re
     if not text:
         return []
-    return [p.strip() for p in text.split(",") if p.strip()]
+    parts = re.split(r',(?![^(]*\))', text)
+    return [p.strip() for p in parts if p.strip()]
 
 
 def build_api_payload(row: dict[str, str], inputs: dict[str, str]) -> dict:
@@ -108,6 +116,8 @@ def build_api_payload(row: dict[str, str], inputs: dict[str, str]) -> dict:
             "season": season_label,
             "description": wheel,
             "palette": palette_hex,
+            "do_colours": row.get("do_colours", ""),
+            "dont_colours": row.get("dont_colours", ""),
             "advice": {
                 "best_colors": best_colors,
                 "least_colors": avoid_colors,

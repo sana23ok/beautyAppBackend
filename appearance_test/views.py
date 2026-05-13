@@ -181,24 +181,23 @@ _SHAPE_TO_CSV_BODY_PROPORTION = {
 }
 
 
-def _get_recommended_masters(preferred_style: str = None, goals: list = None) -> list:
+def _get_recommended_masters(
+    preferred_style: str = None,
+    goals: list = None,
+    max_results: int = 12,
+) -> list:
     """
-    Get recommended masters based on user preferences and goals.
+    Rank active masters by relevance to user preferences and return up to
+    [max_results] entries sorted best → worst.
 
-    Algorithm:
-    1. If preferred_style provided, search for masters with that keyword in description
-    2. Based on goals:
-       - hairstyle -> hairdressers, hair stylists
-       - style -> stylists
-       - makeup -> makeup artists, визажисти
-       - nails -> nail masters
-       - overall -> mix of specialists
-    3. Fallback: first 3 active masters
+    Scoring (per master):
+      +8 each preferred-style keyword hit in description / specialization
+      +5 each goal keyword hit                                           (capped)
+      +rating  (0..5 raw float)
+      +0.05 * review_count  (caps to ~2 — keeps popular masters ahead of cold ones)
     """
     from django.db.models import Q
     from masters.models import Master
-
-    base_qs = Master.objects.filter(is_active=True).select_related('user')
 
     goal_keywords = {
         'hairstyle': ['hair', 'перукар', 'hairdresser', 'барбер', 'стрижка', 'зачіска'],
@@ -207,7 +206,6 @@ def _get_recommended_masters(preferred_style: str = None, goals: list = None) ->
         'nails': ['манікюр', 'nail', 'педикюр', 'нігт', 'manicure'],
         'overall': ['стиліст', 'візаж', 'манікюр', 'hair', 'beauty'],
     }
-
     style_keywords = {
         'vintage': ['вінтаж', 'vintage', 'ретро', 'retro', 'класик'],
         'street': ['street', 'вуличн', 'casual', 'кежуал'],
@@ -219,47 +217,44 @@ def _get_recommended_masters(preferred_style: str = None, goals: list = None) ->
         'romantic': ['романт', 'romantic', 'ніжн', 'feminine'],
     }
 
-    found_masters = []
+    all_active = list(Master.objects.filter(is_active=True).select_related('user'))
+    if not all_active:
+        return []
 
+    style_kws = []
     if preferred_style:
-        style_lower = preferred_style.lower()
-        keywords = style_keywords.get(style_lower, [style_lower])
-        style_filter = Q()
-        for kw in keywords:
-            style_filter |= Q(description__icontains=kw) | Q(specialization__icontains=kw)
-        style_masters = list(base_qs.filter(style_filter).distinct()[:3])
-        found_masters.extend(style_masters)
+        style_kws = style_keywords.get(preferred_style.lower(), [preferred_style.lower()])
 
+    goal_kws = []
     if goals:
-        for goal in goals:
-            if len(found_masters) >= 3:
-                break
-            keywords = goal_keywords.get(goal, [])
-            if not keywords:
-                continue
-            goal_filter = Q()
-            for kw in keywords:
-                goal_filter |= Q(description__icontains=kw) | Q(specialization__icontains=kw)
-            goal_masters = list(base_qs.filter(goal_filter).exclude(
-                id__in=[m.id for m in found_masters]
-            ).distinct()[:2])
-            found_masters.extend(goal_masters)
+        for g in goals:
+            goal_kws.extend(goal_keywords.get(g, []))
 
-    if len(found_masters) < 3:
-        remaining = 3 - len(found_masters)
-        fallback = list(base_qs.exclude(
-            id__in=[m.id for m in found_masters]
-        ).order_by('-rating')[:remaining])
-        found_masters.extend(fallback)
+    def keyword_hits(master, keywords):
+        if not keywords:
+            return 0
+        haystack = f'{master.description or ""} {master.specialization or ""}'.lower()
+        return sum(1 for kw in keywords if kw and kw in haystack)
+
+    scored = []
+    for m in all_active:
+        score = 0.0
+        score += 8.0 * keyword_hits(m, style_kws)
+        score += min(15.0, 5.0 * keyword_hits(m, goal_kws))
+        score += float(m.rating or 0.0)
+        score += min(2.0, 0.05 * (m.review_count or 0))
+        scored.append((score, m))
+
+    scored.sort(key=lambda x: (-x[0], -float(x[1].rating or 0.0), x[1].name or ''))
 
     result = []
-    for m in found_masters[:3]:
+    for _, m in scored[:max_results]:
         result.append({
             'id': m.id,
             'name': m.name,
             'specialization': m.specialization,
             'profile_photo': m.profile_photo or '',
-            'rating': float(m.rating),
+            'rating': float(m.rating or 0.0),
             'city': m.city or '',
         })
     return result
