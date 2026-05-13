@@ -155,25 +155,30 @@ def client_analysis_view(request):
 
 
 def _calculate_body_shape(bust: int, waist: int, hips: int) -> str:
-    """Calculate body shape from measurements."""
+    """Calculate body shape from B/W/H (cm). Priority: Hourglass → Pear → Inv. Δ → Apple → Column."""
     if bust == 0 or hips == 0:
         return None
 
-    bust_hip_ratio = bust / hips
-    waist_hip_ratio = waist / hips
-
-    if bust_hip_ratio >= 1.05:
-        return "Inverted Triangle"
-    elif bust_hip_ratio <= 0.90:
-        return "Triangle"
-    elif waist_hip_ratio < 0.75:
+    if abs(bust - hips) <= 5 and bust - waist >= 18 and hips - waist >= 18:
         return "Hourglass"
-    elif waist_hip_ratio > 0.85 and 0.95 <= bust_hip_ratio <= 1.05:
+
+    if hips - bust >= 6 and hips - waist >= 15:
+        return "Pear"
+
+    if bust - hips >= 6 and bust - waist >= 15:
+        return "Inverted Triangle"
+
+    if waist >= bust - 5 and waist >= hips - 5:
         return "Apple"
-    elif waist_hip_ratio > 0.80:
-        return "Rectangle"
-    else:
-        return "Trapezoid"
+
+    return "Column"
+
+
+_SHAPE_TO_CSV_BODY_PROPORTION = {
+    "Pear": "Triangle",
+    "Column": "Rectangle",
+    "Inverted Triangle": "Inverted Triangle",
+}
 
 
 def _get_recommended_masters(preferred_style: str = None, goals: list = None) -> list:
@@ -308,7 +313,10 @@ def analyse_appearance_view(request):
         if bust > 0 and waist > 0 and hips > 0:
             calculated_body_shape = _calculate_body_shape(bust, waist, hips)
             if calculated_body_shape:
-                inputs['body_proportion'] = calculated_body_shape
+                csv_proportion = _SHAPE_TO_CSV_BODY_PROPORTION.get(
+                    calculated_body_shape, calculated_body_shape
+                )
+                inputs['body_proportion'] = csv_proportion
 
     row = lookup_row(
         inputs['hair_color'],

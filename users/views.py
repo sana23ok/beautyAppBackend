@@ -86,7 +86,7 @@ def _verification_email_html(code):
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border-radius:28px;overflow:hidden;box-shadow:0 16px 38px rgba(96,166,31,0.18);">
             <tr>
               <td style="background:linear-gradient(135deg,#FBA685 0%,#F65368 48%,#BFE97B 100%);padding:38px 28px;text-align:center;">
-                <div style="font-size:30px;line-height:36px;font-weight:700;color:#ffffff;">BeautyApp</div>
+                <div style="font-size:30px;line-height:36px;font-weight:700;color:#ffffff;">SelfEra</div>
                 <div style="margin-top:8px;font-size:15px;color:#ffffff;opacity:.95;">Confirm your email address</div>
               </td>
             </tr>
