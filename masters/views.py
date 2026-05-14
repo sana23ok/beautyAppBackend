@@ -639,43 +639,23 @@ def report_review(request, pk, review_id):
             status=status.HTTP_409_CONFLICT,
         )
 
-    # If the reporter included a text message, send it to the first staff (moderator) user.
     text_body = rr.text.strip()
     if text_body:
-        from chat.models import Conversation, Message
-        from django.contrib.auth.models import User as _User
+        from users.report_notifications import notify_staff_by_dm
 
-        moderator = _User.objects.filter(is_staff=True).exclude(pk=request.user.pk).first()
-        if moderator:
-            # Find or create conversation between reporter and moderator.
-            conv = (
-                Conversation.objects
-                .filter(participants=request.user)
-                .filter(participants=moderator)
-                .first()
-            )
-            if not conv:
-                conv = Conversation.objects.create()
-                conv.participants.add(request.user, moderator)
-
-            reason_label = dict(ReviewReport.REASON_CHOICES).get(rr.reason, rr.reason)
-            author_display = (
-                f'{review.author.first_name} {review.author.last_name}'.strip()
-                or review.author.email
-            )
-            full_msg = (
-                f'[Review report]\n'
-                f'Master: {review.master.name}\n'
-                f'Author: {author_display}\n'
-                f'Reason: {reason_label}\n\n'
-                f'{text_body}'
-            )
-            Message.objects.create(
-                conversation=conv,
-                sender=request.user,
-                text=full_msg,
-            )
-            conv.save()  # updates updated_at
+        reason_label = dict(ReviewReport.REASON_CHOICES).get(rr.reason, rr.reason)
+        author_display = (
+            f'{review.author.first_name} {review.author.last_name}'.strip()
+            or review.author.email
+        )
+        full_msg = (
+            f'[Review report]\n'
+            f'Master: {review.master.name}\n'
+            f'Author: {author_display}\n'
+            f'Reason: {reason_label}\n\n'
+            f'{text_body}'
+        )
+        notify_staff_by_dm(request.user, full_msg)
 
     return Response({'detail': 'Report submitted.'}, status=status.HTTP_201_CREATED)
 

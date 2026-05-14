@@ -695,25 +695,11 @@ def _master_can_report_client(master_user, client_user):
 
 
 def _send_profile_report_message_to_moderator(report):
+    from .report_notifications import notify_staff_by_dm
+
     text_body = report.text.strip()
     if not text_body:
         return
-
-    from chat.models import Conversation, Message
-
-    moderator = User.objects.filter(is_staff=True).exclude(pk=report.reporter_id).first()
-    if not moderator:
-        return
-
-    conv = (
-        Conversation.objects
-        .filter(participants=report.reporter)
-        .filter(participants=moderator)
-        .first()
-    )
-    if not conv:
-        conv = Conversation.objects.create()
-        conv.participants.add(report.reporter, moderator)
 
     reason_label = dict(UserReport.REASON_CHOICES).get(report.reason, report.reason)
     target_name = report.target.get_full_name().strip() or report.target.email or report.target.username
@@ -724,8 +710,7 @@ def _send_profile_report_message_to_moderator(report):
         f'Reason: {reason_label}\n\n'
         f'{text_body}'
     )
-    Message.objects.create(conversation=conv, sender=report.reporter, text=full_msg)
-    conv.save()
+    notify_staff_by_dm(report.reporter, full_msg)
 
 
 @api_view(['POST'])
