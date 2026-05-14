@@ -28,6 +28,33 @@ class Conversation(models.Model):
         return None
 
 
+class ConversationHiddenForUser(models.Model):
+    """A conversation hidden only from one participant's chat list."""
+
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name='hidden_entries',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='hidden_chat_conversations',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=('conversation', 'user'),
+                name='chat_convhidden_conversation_user_uniq',
+            ),
+        ]
+
+    def __str__(self):
+        return f'Hidden conv {self.conversation_id} for user {self.user_id}'
+
+
 class Message(models.Model):
     """A single message in a conversation."""
     MESSAGE_TEXT = 'text'

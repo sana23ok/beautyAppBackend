@@ -14,7 +14,7 @@ def notify_staff_by_dm(reporter, message_text: str) -> None:
     if not text:
         return
 
-    from chat.models import Conversation, Message
+    from chat.models import Conversation, ConversationHiddenForUser, Message
 
     staff = (
         User.objects.filter(is_staff=True)
@@ -31,4 +31,5 @@ def notify_staff_by_dm(reporter, message_text: str) -> None:
             conv = Conversation.objects.create()
             conv.participants.add(reporter, moderator)
         Message.objects.create(conversation=conv, sender=reporter, text=text)
+        ConversationHiddenForUser.objects.filter(conversation=conv).delete()
         conv.save()

@@ -9,7 +9,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Conversation, Message
+from .models import Conversation, ConversationHiddenForUser, Message
 from .serializers import (
     ConversationDetailSerializer,
     ConversationListSerializer,
@@ -44,6 +44,28 @@ def _prefetch_conversations():
     ).distinct()
 
 
+def _visible_conversations_qs(user):
+    """Conversations the user participates in and has not removed only for themselves."""
+    hidden_ids = ConversationHiddenForUser.objects.filter(user=user).values('conversation_id')
+    return (
+        _prefetch_conversations()
+        .filter(participants=user)
+        .exclude(pk__in=hidden_ids)
+        .distinct()
+    )
+
+
+def _is_hidden_for_user(user, conversation_id):
+    return ConversationHiddenForUser.objects.filter(
+        conversation_id=conversation_id,
+        user=user,
+    ).exists()
+
+
+def _clear_hidden_on_new_activity(conversation):
+    ConversationHiddenForUser.objects.filter(conversation=conversation).delete()
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def conversations_list(request):
@@ -52,11 +74,7 @@ def conversations_list(request):
     POST /api/chat/conversations/  — Start a new conversation with another user.
     """
     if request.method == 'GET':
-        conversations = (
-            _prefetch_conversations()
-            .filter(participants=request.user)
-            .distinct()
-        )
+        conversations = _visible_conversations_qs(request.user)
 
         serializer = ConversationListSerializer(
             conversations,
@@ -95,6 +113,7 @@ def conversations_list(request):
         )
 
         if existing:
+            _clear_hidden_on_new_activity(existing)
             if initial_message:
                 Message.objects.create(
                     conversation=existing,
@@ -116,6 +135,7 @@ def conversations_list(request):
                 sender=request.user,
                 text=initial_message,
             )
+            _clear_hidden_on_new_activity(conversation)
 
         conversation = _prefetch_conversations().get(pk=conversation.pk)
         return Response(
@@ -135,6 +155,11 @@ def conversation_detail(request, pk):
             pk=pk, participants=request.user
         )
     except Conversation.DoesNotExist:
+        return Response(
+            {'error': 'Conversation not found.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if _is_hidden_for_user(request.user, pk):
         return Response(
             {'error': 'Conversation not found.'},
             status=status.HTTP_404_NOT_FOUND,
@@ -162,6 +187,11 @@ def conversation_messages(request, pk):
         )
 
     if request.method == 'GET':
+        if _is_hidden_for_user(request.user, pk):
+            return Response(
+                {'error': 'Conversation not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         messages = conversation.messages.all()
         serializer = MessageSerializer(messages, many=True, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -179,6 +209,7 @@ def conversation_messages(request, pk):
             media_url=serializer.validated_data.get('media_url', ''),
         )
         conversation.save()
+        _clear_hidden_on_new_activity(conversation)
 
         return Response(
             MessageSerializer(message, context={'request': request}).data,
@@ -192,14 +223,15 @@ def unread_total(request):
     """
     GET /api/chat/unread_total/  — Total count of unread messages across all conversations.
     """
-    from django.db.models import Sum, Count, Q, F
-    from .models import Message
-
     total = Message.objects.filter(
         conversation__participants=request.user,
         is_read=False,
     ).exclude(
         sender=request.user,
+    ).exclude(
+        conversation_id__in=ConversationHiddenForUser.objects.filter(
+            user=request.user,
+        ).values('conversation_id'),
     ).count()
 
     return Response({'unread_total': total}, status=status.HTTP_200_OK)
@@ -218,6 +250,11 @@ def mark_messages_read(request, pk):
             {'error': 'Conversation not found.'},
             status=status.HTTP_404_NOT_FOUND,
         )
+    if _is_hidden_for_user(request.user, pk):
+        return Response(
+            {'error': 'Conversation not found.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
 
     count = conversation.messages.filter(
         is_read=False
@@ -226,6 +263,40 @@ def mark_messages_read(request, pk):
     ).update(is_read=True)
 
     return Response({'marked_read': count}, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def conversation_delete_action(request, pk):
+    """
+    POST /api/chat/conversations/<id>/delete/
+    Body: {"scope": "self"} hides the chat only for current user.
+          {"scope": "both"} deletes the conversation and messages for both users.
+    """
+    try:
+        conversation = Conversation.objects.get(pk=pk, participants=request.user)
+    except Conversation.DoesNotExist:
+        return Response(
+            {'error': 'Conversation not found.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    scope = (request.data.get('scope') or 'self').strip().lower()
+    if scope not in ('self', 'both'):
+        return Response(
+            {'error': 'scope must be "self" or "both".'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if scope == 'both':
+        conversation.delete()
+    else:
+        ConversationHiddenForUser.objects.get_or_create(
+            conversation=conversation,
+            user=request.user,
+        )
+
+    return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @api_view(['POST'])
@@ -242,6 +313,11 @@ def conversation_upload_media(request, pk):
     try:
         conversation = Conversation.objects.get(pk=pk, participants=request.user)
     except Conversation.DoesNotExist:
+        return Response(
+            {'error': 'Conversation not found.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if _is_hidden_for_user(request.user, pk):
         return Response(
             {'error': 'Conversation not found.'},
             status=status.HTTP_404_NOT_FOUND,
