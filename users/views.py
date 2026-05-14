@@ -712,11 +712,17 @@ def moderation_user_delete(request, user_id):
 @permission_classes([IsAuthenticated])
 def moderation_reviews(request):
     """GET /api/moderation/reviews/?q=... — list all reviews (staff only)."""
+    from django.db.models import Count as _Count
     err = _require_staff(request)
     if err:
         return err
     q = request.GET.get('q', '').strip()
-    qs = MasterReview.objects.select_related('author', 'master').order_by('-created_at')
+    qs = (
+        MasterReview.objects
+        .select_related('author', 'master')
+        .annotate(report_count_annotated=_Count('reports'))
+        .order_by('-created_at')
+    )
     if q:
         qs = qs.filter(
             Q(comment__icontains=q) |

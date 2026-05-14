@@ -252,13 +252,19 @@ class ModerationReviewSerializer(serializers.ModelSerializer):
     author_email = serializers.CharField(source='author.email', read_only=True)
     author_name = serializers.SerializerMethodField()
     master_name = serializers.CharField(source='master.name', read_only=True)
+    report_count = serializers.SerializerMethodField()
 
     class Meta:
         from masters.models import MasterReview
         model = MasterReview
-        fields = ('id', 'author_email', 'author_name', 'master_id', 'master_name', 'rating', 'comment', 'created_at')
+        fields = ('id', 'author_email', 'author_name', 'master_id', 'master_name', 'rating', 'comment', 'created_at', 'report_count')
         read_only_fields = fields
 
     def get_author_name(self, obj):
         full = f'{obj.author.first_name} {obj.author.last_name}'.strip()
         return full or obj.author.email
+
+    def get_report_count(self, obj):
+        if hasattr(obj, 'report_count_annotated'):
+            return obj.report_count_annotated
+        return obj.reports.count()

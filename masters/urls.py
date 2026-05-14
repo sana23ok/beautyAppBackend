@@ -31,5 +31,6 @@ urlpatterns = [
         name='master_week_schedules_public',
     ),
     path('api/masters/<int:pk>/reviews/', views.master_reviews, name='master_reviews'),
+    path('api/masters/<int:pk>/reviews/<int:review_id>/report/', views.report_review, name='report_review'),
     path('api/masters/<int:pk>/', views.master_detail, name='master_detail'),
 ]

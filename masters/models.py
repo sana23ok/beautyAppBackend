@@ -148,3 +148,47 @@ class MasterReview(models.Model):
 
     def __str__(self):
         return f'{self.author_id} → {self.master_id}: {self.rating}★'
+
+
+class ReviewReport(models.Model):
+    """A user's complaint about a specific review."""
+
+    REASON_SPAM = 'spam'
+    REASON_FALSE = 'false_info'
+    REASON_OFFENSIVE = 'offensive'
+    REASON_HARASSMENT = 'harassment'
+    REASON_OTHER = 'other'
+
+    REASON_CHOICES = [
+        (REASON_SPAM, 'Spam'),
+        (REASON_FALSE, 'False information'),
+        (REASON_OFFENSIVE, 'Offensive content'),
+        (REASON_HARASSMENT, 'Harassment / bullying'),
+        (REASON_OTHER, 'Other'),
+    ]
+
+    review = models.ForeignKey(
+        MasterReview,
+        on_delete=models.CASCADE,
+        related_name='reports',
+    )
+    reporter = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='review_reports_made',
+    )
+    reason = models.CharField(max_length=20, choices=REASON_CHOICES)
+    text = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['review', 'reporter'],
+                name='unique_review_report_per_user',
+            ),
+        ]
+
+    def __str__(self):
+        return f'Report #{self.id}: review {self.review_id} by user {self.reporter_id} ({self.reason})'

@@ -2,7 +2,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from rest_framework import serializers
 
-from .models import Master, MasterReview, MasterService, MasterWeekTimetable, MasterWorkPhoto
+from .models import Master, MasterReview, MasterService, MasterWeekTimetable, MasterWorkPhoto, ReviewReport
 
 
 class MasterWorkPhotoSerializer(serializers.ModelSerializer):
@@ -65,10 +65,11 @@ class MasterReviewReadSerializer(serializers.ModelSerializer):
     author_name = serializers.SerializerMethodField()
     author_avatar = serializers.SerializerMethodField()
     is_verified = serializers.SerializerMethodField()
+    report_count = serializers.SerializerMethodField()
 
     class Meta:
         model = MasterReview
-        fields = ('id', 'author_name', 'author_avatar', 'rating', 'comment', 'created_at', 'is_verified')
+        fields = ('id', 'author_name', 'author_avatar', 'rating', 'comment', 'created_at', 'is_verified', 'report_count')
         read_only_fields = fields
 
     def get_author_name(self, obj):
@@ -88,6 +89,17 @@ class MasterReviewReadSerializer(serializers.ModelSerializer):
 
     def get_is_verified(self, obj):
         return True
+
+    def get_report_count(self, obj):
+        # Use prefetched data if available (via annotate/prefetch in view), else count.
+        if hasattr(obj, 'report_count_annotated'):
+            return obj.report_count_annotated
+        return obj.reports.count()
+
+
+class ReviewReportSerializer(serializers.Serializer):
+    reason = serializers.ChoiceField(choices=[c[0] for c in ReviewReport.REASON_CHOICES])
+    text = serializers.CharField(allow_blank=True, default='', max_length=2000)
 
 
 class MasterReviewWriteSerializer(serializers.Serializer):

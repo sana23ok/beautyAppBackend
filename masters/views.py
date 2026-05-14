@@ -15,7 +15,7 @@ from rest_framework.response import Response
 
 from bookings.models import Booking
 
-from .models import Master, MasterReview, MasterService, MasterWeekTimetable, MasterWorkPhoto
+from .models import Master, MasterReview, MasterService, MasterWeekTimetable, MasterWorkPhoto, ReviewReport
 from .serializers import (
     MasterReviewReadSerializer,
     MasterReviewWriteSerializer,
@@ -23,6 +23,7 @@ from .serializers import (
     MasterServiceSerializer,
     MasterWeekTimetableSerializer,
     MasterWorkPhotoSerializer,
+    ReviewReportSerializer,
     MasterWriteSerializer,
 )
 
@@ -607,10 +608,82 @@ def my_work_photo_detail(request, photo_id):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+# ── Review reports ─────────────────────────────────────────────────────────────
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def report_review(request, pk, review_id):
+    """POST /api/masters/<pk>/reviews/<review_id>/report/ — report a review."""
+    try:
+        review = MasterReview.objects.select_related('author', 'master').get(pk=review_id, master_id=pk)
+    except MasterReview.DoesNotExist:
+        return Response({'detail': 'Review not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if review.author_id == request.user.id:
+        return Response({'detail': 'You cannot report your own review.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    ser = ReviewReportSerializer(data=request.data)
+    if not ser.is_valid():
+        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        rr = ReviewReport.objects.create(
+            review=review,
+            reporter=request.user,
+            reason=ser.validated_data['reason'],
+            text=ser.validated_data.get('text', ''),
+        )
+    except Exception:
+        return Response(
+            {'detail': 'You have already reported this review.'},
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    # If the reporter included a text message, send it to the first staff (moderator) user.
+    text_body = rr.text.strip()
+    if text_body:
+        from chat.models import Conversation, Message
+        from django.contrib.auth.models import User as _User
+
+        moderator = _User.objects.filter(is_staff=True).exclude(pk=request.user.pk).first()
+        if moderator:
+            # Find or create conversation between reporter and moderator.
+            conv = (
+                Conversation.objects
+                .filter(participants=request.user)
+                .filter(participants=moderator)
+                .first()
+            )
+            if not conv:
+                conv = Conversation.objects.create()
+                conv.participants.add(request.user, moderator)
+
+            reason_label = dict(ReviewReport.REASON_CHOICES).get(rr.reason, rr.reason)
+            author_display = (
+                f'{review.author.first_name} {review.author.last_name}'.strip()
+                or review.author.email
+            )
+            full_msg = (
+                f'[Review report]\n'
+                f'Master: {review.master.name}\n'
+                f'Author: {author_display}\n'
+                f'Reason: {reason_label}\n\n'
+                f'{text_body}'
+            )
+            Message.objects.create(
+                conversation=conv,
+                sender=request.user,
+                text=full_msg,
+            )
+            conv.save()  # updates updated_at
+
+    return Response({'detail': 'Report submitted.'}, status=status.HTTP_201_CREATED)
+
+
 # ── Connection test (kept for compatibility) ──────────────────────────────────
 
 def test_connection(request):
     return JsonResponse({
-        "message": "🎉 Ура! Android успішно з'єднався з Django!",
+        "message": "Django connected",
         "status": "success"
     })
