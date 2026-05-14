@@ -24,6 +24,7 @@ urlpatterns = [
 
     # ── Users list ────────────────────────────────────────────────────────────
     path('api/users/', views.users_list, name='users_list'),
+    path('api/users/<int:user_id>/report/', views.report_user, name='report_user'),
 
     # ── Clients ───────────────────────────────────────────────────────────────
     path('api/clients/', views.clients_list, name='clients_list'),

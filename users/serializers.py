@@ -3,7 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
-from .models import Client, UserProfile
+from .models import Client, UserProfile, UserReport
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -221,10 +221,21 @@ class FavoriteToggleSerializer(serializers.Serializer):
 class ModerationUserSerializer(serializers.ModelSerializer):
     is_master = serializers.SerializerMethodField()
     avatar = serializers.SerializerMethodField()
+    report_count = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ('id', 'email', 'first_name', 'last_name', 'is_master', 'is_staff', 'avatar', 'date_joined')
+        fields = (
+            'id',
+            'email',
+            'first_name',
+            'last_name',
+            'is_master',
+            'is_staff',
+            'avatar',
+            'date_joined',
+            'report_count',
+        )
         read_only_fields = fields
 
     def get_is_master(self, obj):
@@ -246,6 +257,16 @@ class ModerationUserSerializer(serializers.ModelSerializer):
         except ObjectDoesNotExist:
             pass
         return None
+
+    def get_report_count(self, obj):
+        if hasattr(obj, 'report_count_annotated'):
+            return obj.report_count_annotated
+        return obj.profile_reports_received.count()
+
+
+class UserReportSerializer(serializers.Serializer):
+    reason = serializers.ChoiceField(choices=[c[0] for c in UserReport.REASON_CHOICES])
+    text = serializers.CharField(allow_blank=True, default='', max_length=2000)
 
 
 class ModerationReviewSerializer(serializers.ModelSerializer):

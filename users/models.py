@@ -99,3 +99,39 @@ class FavoriteMaster(models.Model):
 
     def __str__(self):
         return f'{self.user_id} ♥ {self.master_id}'
+
+
+class UserReport(models.Model):
+    """A user's complaint about another user's profile/account."""
+
+    REASON_SPAM = 'spam'
+    REASON_FAKE = 'fake_profile'
+    REASON_OFFENSIVE = 'offensive'
+    REASON_HARASSMENT = 'harassment'
+    REASON_OTHER = 'other'
+
+    REASON_CHOICES = [
+        (REASON_SPAM, 'Spam'),
+        (REASON_FAKE, 'Fake profile'),
+        (REASON_OFFENSIVE, 'Offensive content'),
+        (REASON_HARASSMENT, 'Harassment / bullying'),
+        (REASON_OTHER, 'Other'),
+    ]
+
+    target = models.ForeignKey(User, on_delete=models.CASCADE, related_name='profile_reports_received')
+    reporter = models.ForeignKey(User, on_delete=models.CASCADE, related_name='profile_reports_made')
+    reason = models.CharField(max_length=20, choices=REASON_CHOICES)
+    text = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['target', 'reporter'],
+                name='users_userreport_target_reporter_uniq',
+            ),
+        ]
+
+    def __str__(self):
+        return f'Report #{self.id}: user {self.target_id} by {self.reporter_id} ({self.reason})'

@@ -18,11 +18,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
-from django.db.models import Q
+from django.db.models import Count, Q
 from masters.models import Master, MasterReview
 from masters.serializers import MasterPublicCardSerializer
 
-from .models import Client, EmailVerificationCode, FavoriteMaster, UserProfile
+from .models import Client, EmailVerificationCode, FavoriteMaster, UserProfile, UserReport
 from .serializers import (
     ClientSerializer,
     FavoriteToggleSerializer,
@@ -34,6 +34,7 @@ from .serializers import (
     SendVerificationCodeSerializer,
     UserUpdateSerializer,
     UserSerializer,
+    UserReportSerializer,
 )
 
 
@@ -671,6 +672,107 @@ def _require_staff(request):
     return None
 
 
+def _users_have_conversation(user_a, user_b):
+    from chat.models import Conversation
+
+    return (
+        Conversation.objects
+        .filter(participants=user_a)
+        .filter(participants=user_b)
+        .exists()
+    )
+
+
+def _master_can_report_client(master_user, client_user):
+    from bookings.models import Booking
+
+    try:
+        master = master_user.master_profile
+    except Master.DoesNotExist:
+        return False
+
+    return Booking.objects.filter(master=master, client=client_user).exists()
+
+
+def _send_profile_report_message_to_moderator(report):
+    text_body = report.text.strip()
+    if not text_body:
+        return
+
+    from chat.models import Conversation, Message
+
+    moderator = User.objects.filter(is_staff=True).exclude(pk=report.reporter_id).first()
+    if not moderator:
+        return
+
+    conv = (
+        Conversation.objects
+        .filter(participants=report.reporter)
+        .filter(participants=moderator)
+        .first()
+    )
+    if not conv:
+        conv = Conversation.objects.create()
+        conv.participants.add(report.reporter, moderator)
+
+    reason_label = dict(UserReport.REASON_CHOICES).get(report.reason, report.reason)
+    target_name = report.target.get_full_name().strip() or report.target.email or report.target.username
+    full_msg = (
+        f'[Profile report]\n'
+        f'Target: {target_name}\n'
+        f'Target email: {report.target.email}\n'
+        f'Reason: {reason_label}\n\n'
+        f'{text_body}'
+    )
+    Message.objects.create(conversation=conv, sender=report.reporter, text=full_msg)
+    conv.save()
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def report_user(request, user_id):
+    """POST /api/users/<id>/report/ — report a user/master profile."""
+    if user_id == request.user.id:
+        return Response({'detail': 'You cannot report your own profile.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        target = User.objects.select_related('master_profile').get(pk=user_id)
+    except User.DoesNotExist:
+        return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    target_is_master = hasattr(target, 'master_profile')
+    reporter_is_master = hasattr(request.user, 'master_profile')
+
+    # Clients may report masters from the public master profile. For all other
+    # profile reports, require an existing booking or chat relationship.
+    allowed = target_is_master or _users_have_conversation(request.user, target)
+    if reporter_is_master and not target_is_master:
+        allowed = allowed or _master_can_report_client(request.user, target)
+
+    if not allowed:
+        return Response(
+            {'detail': 'You can report only profiles you have interacted with.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    ser = UserReportSerializer(data=request.data)
+    if not ser.is_valid():
+        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        report = UserReport.objects.create(
+            target=target,
+            reporter=request.user,
+            reason=ser.validated_data['reason'],
+            text=ser.validated_data.get('text', ''),
+        )
+    except Exception:
+        return Response({'detail': 'You have already reported this profile.'}, status=status.HTTP_409_CONFLICT)
+
+    _send_profile_report_message_to_moderator(report)
+    return Response({'detail': 'Report submitted.'}, status=status.HTTP_201_CREATED)
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def moderation_users(request):
@@ -679,7 +781,12 @@ def moderation_users(request):
     if err:
         return err
     q = request.GET.get('q', '').strip()
-    qs = User.objects.select_related('profile', 'master_profile').order_by('-date_joined')
+    qs = (
+        User.objects
+        .select_related('profile', 'master_profile')
+        .annotate(report_count_annotated=Count('profile_reports_received'))
+        .order_by('-report_count_annotated', '-date_joined')
+    )
     if q:
         qs = qs.filter(
             Q(email__icontains=q) |
@@ -712,7 +819,6 @@ def moderation_user_delete(request, user_id):
 @permission_classes([IsAuthenticated])
 def moderation_reviews(request):
     """GET /api/moderation/reviews/?q=... — list all reviews (staff only)."""
-    from django.db.models import Count as _Count
     err = _require_staff(request)
     if err:
         return err
@@ -720,8 +826,8 @@ def moderation_reviews(request):
     qs = (
         MasterReview.objects
         .select_related('author', 'master')
-        .annotate(report_count_annotated=_Count('reports'))
-        .order_by('-created_at')
+        .annotate(report_count_annotated=Count('reports'))
+        .order_by('-report_count_annotated', '-created_at')
     )
     if q:
         qs = qs.filter(
