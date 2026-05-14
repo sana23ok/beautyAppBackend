@@ -28,4 +28,10 @@ urlpatterns = [
     # ── Clients ───────────────────────────────────────────────────────────────
     path('api/clients/', views.clients_list, name='clients_list'),
     path('api/clients/me/', views.my_client_profile, name='client_me'),
+
+    # ── Moderation (staff only) ───────────────────────────────────────────────
+    path('api/moderation/users/', views.moderation_users, name='mod_users'),
+    path('api/moderation/users/<int:user_id>/', views.moderation_user_delete, name='mod_user_delete'),
+    path('api/moderation/reviews/', views.moderation_reviews, name='mod_reviews'),
+    path('api/moderation/reviews/<int:review_id>/', views.moderation_review_delete, name='mod_review_delete'),
 ]

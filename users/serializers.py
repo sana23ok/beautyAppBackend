@@ -23,6 +23,7 @@ class UserSerializer(serializers.ModelSerializer):
             'avatar',
             'phone_number',
             'is_master',
+            'is_staff',
             'client_profile_id',
             'master_profile_id',
         )
@@ -215,3 +216,49 @@ class UserUpdateSerializer(serializers.Serializer):
 
 class FavoriteToggleSerializer(serializers.Serializer):
     master_id = serializers.IntegerField(min_value=1)
+
+
+class ModerationUserSerializer(serializers.ModelSerializer):
+    is_master = serializers.SerializerMethodField()
+    avatar = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ('id', 'email', 'first_name', 'last_name', 'is_master', 'is_staff', 'avatar', 'date_joined')
+        read_only_fields = fields
+
+    def get_is_master(self, obj):
+        try:
+            obj.master_profile
+            return True
+        except ObjectDoesNotExist:
+            return False
+
+    def get_avatar(self, obj):
+        try:
+            if obj.profile.avatar:
+                return obj.profile.avatar
+        except ObjectDoesNotExist:
+            pass
+        try:
+            if obj.master_profile.profile_photo:
+                return obj.master_profile.profile_photo
+        except ObjectDoesNotExist:
+            pass
+        return None
+
+
+class ModerationReviewSerializer(serializers.ModelSerializer):
+    author_email = serializers.CharField(source='author.email', read_only=True)
+    author_name = serializers.SerializerMethodField()
+    master_name = serializers.CharField(source='master.name', read_only=True)
+
+    class Meta:
+        from masters.models import MasterReview
+        model = MasterReview
+        fields = ('id', 'author_email', 'author_name', 'master_id', 'master_name', 'rating', 'comment', 'created_at')
+        read_only_fields = fields
+
+    def get_author_name(self, obj):
+        full = f'{obj.author.first_name} {obj.author.last_name}'.strip()
+        return full or obj.author.email

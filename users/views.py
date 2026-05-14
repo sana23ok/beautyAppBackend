@@ -18,7 +18,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
-from masters.models import Master
+from django.db.models import Q
+from masters.models import Master, MasterReview
 from masters.serializers import MasterPublicCardSerializer
 
 from .models import Client, EmailVerificationCode, FavoriteMaster, UserProfile
@@ -27,6 +28,8 @@ from .serializers import (
     FavoriteToggleSerializer,
     GoogleAuthSerializer,
     LoginSerializer,
+    ModerationReviewSerializer,
+    ModerationUserSerializer,
     RegisterSerializer,
     SendVerificationCodeSerializer,
     UserUpdateSerializer,
@@ -656,4 +659,87 @@ def favorite_masters_toggle(request):
 def favorite_masters_delete(request, master_id):
     """DELETE /api/auth/favorite-masters/<master_id>/ — remove from favorites."""
     FavoriteMaster.objects.filter(user=request.user, master_id=master_id).delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Moderation (staff only) ────────────────────────────────────────────────────
+
+
+def _require_staff(request):
+    if not request.user.is_staff:
+        return Response({'detail': 'Staff access required.'}, status=status.HTTP_403_FORBIDDEN)
+    return None
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def moderation_users(request):
+    """GET /api/moderation/users/?q=... — list all users (staff only)."""
+    err = _require_staff(request)
+    if err:
+        return err
+    q = request.GET.get('q', '').strip()
+    qs = User.objects.select_related('profile', 'master_profile').order_by('-date_joined')
+    if q:
+        qs = qs.filter(
+            Q(email__icontains=q) |
+            Q(first_name__icontains=q) |
+            Q(last_name__icontains=q)
+        )
+    return Response(ModerationUserSerializer(qs, many=True).data, status=status.HTTP_200_OK)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def moderation_user_delete(request, user_id):
+    """DELETE /api/moderation/users/<id>/ — delete user (staff only, cannot delete self or other staff)."""
+    err = _require_staff(request)
+    if err:
+        return err
+    if user_id == request.user.id:
+        return Response({'detail': 'Cannot delete your own account via moderation.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        target = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+    if target.is_staff:
+        return Response({'detail': 'Cannot delete staff accounts.'}, status=status.HTTP_400_BAD_REQUEST)
+    target.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def moderation_reviews(request):
+    """GET /api/moderation/reviews/?q=... — list all reviews (staff only)."""
+    err = _require_staff(request)
+    if err:
+        return err
+    q = request.GET.get('q', '').strip()
+    qs = MasterReview.objects.select_related('author', 'master').order_by('-created_at')
+    if q:
+        qs = qs.filter(
+            Q(comment__icontains=q) |
+            Q(author__email__icontains=q) |
+            Q(author__first_name__icontains=q) |
+            Q(author__last_name__icontains=q) |
+            Q(master__name__icontains=q)
+        )
+    return Response(ModerationReviewSerializer(qs, many=True).data, status=status.HTTP_200_OK)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def moderation_review_delete(request, review_id):
+    """DELETE /api/moderation/reviews/<id>/ — delete review (staff only)."""
+    err = _require_staff(request)
+    if err:
+        return err
+    try:
+        review = MasterReview.objects.select_related('master').get(pk=review_id)
+    except MasterReview.DoesNotExist:
+        return Response({'detail': 'Review not found.'}, status=status.HTTP_404_NOT_FOUND)
+    master = review.master
+    review.delete()
+    Master.sync_review_aggregates_for_master_id(master.pk)
     return Response(status=status.HTTP_204_NO_CONTENT)
