@@ -9,6 +9,7 @@ from .models import Client, UserProfile, UserReport
 class UserSerializer(serializers.ModelSerializer):
     avatar = serializers.SerializerMethodField()
     phone_number = serializers.SerializerMethodField()
+    city = serializers.SerializerMethodField()
     is_master = serializers.SerializerMethodField()
     client_profile_id = serializers.SerializerMethodField()
     master_profile_id = serializers.SerializerMethodField()
@@ -22,6 +23,7 @@ class UserSerializer(serializers.ModelSerializer):
             'last_name',
             'avatar',
             'phone_number',
+            'city',
             'is_master',
             'is_staff',
             'client_profile_id',
@@ -46,6 +48,12 @@ class UserSerializer(serializers.ModelSerializer):
     def get_phone_number(self, obj):
         try:
             return obj.profile.phone_number or ''
+        except ObjectDoesNotExist:
+            return ''
+
+    def get_city(self, obj):
+        try:
+            return (obj.client_profile.location or '').strip()
         except ObjectDoesNotExist:
             return ''
 
@@ -181,6 +189,7 @@ class UserUpdateSerializer(serializers.Serializer):
     first_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
     phone_number = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.CharField(required=False, allow_blank=True)
     avatar = serializers.URLField(required=False, allow_blank=True)
 
     def update(self, instance, validated_data):
@@ -209,6 +218,8 @@ class UserUpdateSerializer(serializers.Serializer):
         client.name = instance.get_full_name().strip() or instance.email
         client.email = instance.email
         client.phone_number = profile.phone_number
+        if 'city' in validated_data:
+            client.location = validated_data['city']
         client.save()
 
         return instance

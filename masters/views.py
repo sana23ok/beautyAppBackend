@@ -59,6 +59,37 @@ def _apply_master_search(queryset, raw_query):
     return queryset
 
 
+def _client_city_for_request_user(user) -> str:
+    """User home city from Client.location (same field as mobile 'city')."""
+    if not getattr(user, 'is_authenticated', False) or not user.is_authenticated:
+        return ''
+    try:
+        return (user.client_profile.location or '').strip()
+    except Exception:
+        return ''
+
+
+def _order_masters_same_city_first_by_rating(queryset, user_city: str):
+    """
+    Masters in the same city (case-insensitive exact match on Master.city) first,
+    each block ordered by rating, then review count, then name. If user has no city,
+    order globally by rating only.
+    """
+    user_key = (user_city or '').strip().casefold()
+    masters = list(queryset)
+    if not user_key:
+        masters.sort(key=lambda m: (-float(m.rating or 0), -(m.review_count or 0), m.name or ''))
+        return masters
+
+    def sort_key(m):
+        m_city = (m.city or '').strip().casefold()
+        same = 1 if m_city == user_key else 0
+        return (-same, -float(m.rating or 0), -(m.review_count or 0), m.name or '')
+
+    masters.sort(key=sort_key)
+    return masters
+
+
 # ── Masters list + create ─────────────────────────────────────────────────────
 
 @api_view(['GET', 'POST'])
@@ -96,7 +127,9 @@ def masters_list(request):
             .filter(is_active=True)
         )
         masters = _apply_master_search(masters, search_query).distinct()
-        serializer = MasterSerializer(masters, many=True)
+        user_city = _client_city_for_request_user(request.user)
+        ordered = _order_masters_same_city_first_by_rating(masters, user_city)
+        serializer = MasterSerializer(ordered, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     if request.method == 'POST':

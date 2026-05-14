@@ -184,20 +184,26 @@ _SHAPE_TO_CSV_BODY_PROPORTION = {
 def _get_recommended_masters(
     preferred_style: str = None,
     goals: list = None,
+    user_city: str = None,
     max_results: int = 12,
 ) -> list:
     """
-    Rank active masters by relevance to user preferences and return up to
-    [max_results] entries sorted best → worst.
+    Recommend masters after the appearance test.
 
-    Scoring (per master):
-      +8 each preferred-style keyword hit in description / specialization
-      +5 each goal keyword hit                                           (capped)
-      +rating  (0..5 raw float)
-      +0.05 * review_count  (caps to ~2 — keeps popular masters ahead of cold ones)
+    1) If the user has a city: first list masters in that city who also match the
+       selected work areas (goals) and preferred style (keyword hits in
+       description/specialization). Sorted by relevance score, then rating.
+
+    2) If there are none in (1), or to fill remaining slots: all other masters
+       sorted by the same relevance (aspects) and rating — city is not required.
+
+    When the user did not select goals or preferred_style, "aspect match" is
+    treated as true for everyone, so ordering falls back to same-city first,
+    then by rating within/between groups.
     """
-    from django.db.models import Q
     from masters.models import Master
+
+    city_key = (user_city or '').strip().casefold()
 
     goal_keywords = {
         'hairstyle': ['hair', 'перукар', 'hairdresser', 'барбер', 'стрижка', 'зачіска'],
@@ -236,19 +242,56 @@ def _get_recommended_masters(
         haystack = f'{master.description or ""} {master.specialization or ""}'.lower()
         return sum(1 for kw in keywords if kw and kw in haystack)
 
-    scored = []
-    for m in all_active:
-        score = 0.0
-        score += 8.0 * keyword_hits(m, style_kws)
-        score += min(15.0, 5.0 * keyword_hits(m, goal_kws))
-        score += float(m.rating or 0.0)
-        score += min(2.0, 0.05 * (m.review_count or 0))
-        scored.append((score, m))
+    has_aspect_filters = bool(style_kws or goal_kws)
 
-    scored.sort(key=lambda x: (-x[0], -float(x[1].rating or 0.0), x[1].name or ''))
+    ranked_rows = []
+    for m in all_active:
+        style_hits = keyword_hits(m, style_kws)
+        goal_hits = keyword_hits(m, goal_kws)
+        aspect_score = 8.0 * style_hits + min(15.0, 5.0 * goal_hits)
+        if has_aspect_filters:
+            matches_aspects = aspect_score > 0
+        else:
+            matches_aspects = True
+
+        same_city = False
+        if city_key:
+            m_city = (m.city or '').strip().casefold()
+            same_city = m_city == city_key
+
+        ranked_rows.append({
+            'm': m,
+            'aspect_score': aspect_score,
+            'same_city': same_city,
+            'matches_aspects': matches_aspects,
+        })
+
+    def sort_aspects_then_rating(row):
+        m = row['m']
+        return (
+            -row['aspect_score'],
+            -float(m.rating or 0.0),
+            -(m.review_count or 0),
+            m.name or '',
+        )
+
+    tier_local_relevant = [
+        r for r in ranked_rows
+        if r['same_city'] and r['matches_aspects']
+    ]
+    tier_local_relevant.sort(key=sort_aspects_then_rating)
+
+    local_ids = {r['m'].id for r in tier_local_relevant}
+    tier_rest = [r for r in ranked_rows if r['m'].id not in local_ids]
+    tier_rest.sort(key=sort_aspects_then_rating)
+
+    if not tier_local_relevant:
+        ordered_masters = [r['m'] for r in tier_rest]
+    else:
+        ordered_masters = [r['m'] for r in tier_local_relevant + tier_rest]
 
     result = []
-    for _, m in scored[:max_results]:
+    for m in ordered_masters[:max_results]:
         result.append({
             'id': m.id,
             'name': m.name,
@@ -331,7 +374,10 @@ def analyse_appearance_view(request):
 
     preferred_style = data.get('preferred_style')
     goals = data.get('goals')
-    recommended_masters = _get_recommended_masters(preferred_style, goals)
+    user_city = str(data.get('user_city', '')).strip()
+    recommended_masters = _get_recommended_masters(
+        preferred_style, goals, user_city=user_city or None,
+    )
     payload['recommended_masters'] = recommended_masters
 
     if calculated_body_shape:
