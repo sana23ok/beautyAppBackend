@@ -15,7 +15,10 @@ class ParticipantSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'first_name', 'last_name', 'avatar', 'is_online', 'display_name')
+        fields = (
+            'id', 'username', 'first_name', 'last_name', 'avatar', 'is_online',
+            'display_name', 'is_staff',
+        )
 
     def get_avatar(self, obj):
         # Never use hasattr() for reverse OneToOne — it still raises DoesNotExist.
