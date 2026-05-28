@@ -8,9 +8,11 @@ requests>=2.32.5
 cloudinary>=1.36.0
 django-cloudinary-storage>=0.3.0
 python-dotenv>=1.0.0
+gunicorn>=22.0
+whitenoise>=6.6
 
-# Optional: HTML reports — python -m pip install -r requirements.txt then:
-# python -m pytest --html=report.html --self-contained-html
-pytest>=8.0
-pytest-django>=4.8
-pytest-html>=4.1
+# --- Локальні тести (не потрібні на Render / prod) — pip install -r requirements-dev.txt ---
+# pytest>=8.0
+# pytest-django>=4.8
+# pytest-html>=4.1
+# Запуск: python -m pytest --html=report.html --self-contained-html

@@ -1,0 +1,5 @@
+# Dev / CI: install after production deps
+-r requirements.txt
+pytest>=8.0
+pytest-django>=4.8
+pytest-html>=4.1

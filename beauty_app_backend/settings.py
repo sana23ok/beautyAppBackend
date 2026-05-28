@@ -34,12 +34,21 @@ except ImportError:
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-dl)&as3nmt3@j7293d#vzoxmg=@4vcv4%j9&ung)irn3)st#a+'
+SECRET_KEY = os.getenv(
+    'SECRET_KEY',
+    'django-insecure-dl)&as3nmt3@j7293d#vzoxmg=@4vcv4%j9&ung)irn3)st#a+',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'True').lower() in ('1', 'true', 'yes', 'on')
 
-ALLOWED_HOSTS = ['*']
+_raw_allowed_hosts = os.getenv('ALLOWED_HOSTS', '').strip()
+if _raw_allowed_hosts:
+    ALLOWED_HOSTS = [h.strip() for h in _raw_allowed_hosts.split(',') if h.strip()]
+elif DEBUG:
+    ALLOWED_HOSTS = ['*']
+else:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 CORS_ALLOW_ALL_ORIGINS = True
 
@@ -74,6 +83,7 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -122,14 +132,21 @@ if not _POSTGRES_PASSWORD:
         )
     raise ImproperlyConfigured('PostgreSQL password is missing.\n' + '\n'.join(_hints))
 
+_POSTGRES_HOST = os.getenv('POSTGRES_HOST', 'localhost')
+_POSTGRES_SSL = os.getenv('POSTGRES_SSL', '').strip().lower()
+_postgres_options: dict[str, str] = {}
+if _POSTGRES_SSL in ('1', 'true', 'yes', 'require', 'on') or 'render.com' in _POSTGRES_HOST:
+    _postgres_options['sslmode'] = 'require'
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.getenv('POSTGRES_DB', 'beautydb'),
         'USER': os.getenv('POSTGRES_USER', 'postgres'),
         'PASSWORD': _POSTGRES_PASSWORD,
-        'HOST': os.getenv('POSTGRES_HOST', 'localhost'),
+        'HOST': _POSTGRES_HOST,
         'PORT': os.getenv('POSTGRES_PORT', '5433'),
+        **({'OPTIONS': _postgres_options} if _postgres_options else {}),
     }
 }
 
@@ -169,8 +186,15 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
-
-# --- Django REST Framework ---
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'default': {
+        'BACKEND': 'cloudinary_storage.storage.MediaCloudStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -231,4 +255,4 @@ CLOUDINARY_API_SECRET = CLOUDINARY_STORAGE['API_SECRET']
 # Optional: single URL (alternative to the three vars above); also read in upload_avatar.
 CLOUDINARY_URL = os.getenv('CLOUDINARY_URL', '')
 
-DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudStorage'
+# --- Django REST Framework ---

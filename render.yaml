@@ -1,0 +1,18 @@
+# Render Blueprint — optional: New → Blueprint → connect this repo
+services:
+  - type: web
+    name: beautyapp-api
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: ./build.sh
+    startCommand: gunicorn beauty_app_backend.wsgi:application --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.7"
+      - key: DEBUG
+        value: "false"
+      - key: POSTGRES_SSL
+        value: require
+      # Set in Render Dashboard (secrets):
+      # SECRET_KEY, ALLOWED_HOSTS, POSTGRES_*, CLOUDINARY_*, WEB_CLIENT_ID, EMAIL_*
