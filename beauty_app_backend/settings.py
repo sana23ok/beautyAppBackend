@@ -83,7 +83,6 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -135,7 +134,7 @@ if not _POSTGRES_PASSWORD:
 _POSTGRES_HOST = os.getenv('POSTGRES_HOST', 'localhost')
 _POSTGRES_SSL = os.getenv('POSTGRES_SSL', '').strip().lower()
 _postgres_options: dict[str, str] = {}
-if _POSTGRES_SSL in ('1', 'true', 'yes', 'require', 'on') or 'render.com' in _POSTGRES_HOST:
+if _POSTGRES_SSL in ('1', 'true', 'yes', 'require', 'on'):
     _postgres_options['sslmode'] = 'require'
 
 DATABASES = {
@@ -186,15 +185,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
-STORAGES = {
-    'default': {
-        'BACKEND': 'cloudinary_storage.storage.MediaCloudStorage',
-    },
-    'staticfiles': {
-        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
-    },
-}
+
+# --- Django REST Framework ---
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -255,4 +247,4 @@ CLOUDINARY_API_SECRET = CLOUDINARY_STORAGE['API_SECRET']
 # Optional: single URL (alternative to the three vars above); also read in upload_avatar.
 CLOUDINARY_URL = os.getenv('CLOUDINARY_URL', '')
 
-# --- Django REST Framework ---
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudStorage'

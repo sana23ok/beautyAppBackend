@@ -1,12 +1,15 @@
 # PostgreSQL: local ↔ Render
 
-## Active connection
+## Active connection (local)
 
-Django reads `POSTGRES_*` from `.env`. Local credentials are **commented out**; Render is **active**.
+Django reads `POSTGRES_*` from `.env`. **Local PostgreSQL is active**; Render block is commented out.
 
-Switch back to local: comment the Render block and uncomment the local block in `.env`.
+For Render: comment local block, uncomment Render block, set `POSTGRES_SSL=require`.
 
-Render requires SSL — `POSTGRES_SSL=require` is set (also auto-enabled for `*.render.com` hosts in `settings.py`).
+SSL for PostgreSQL is enabled only when `POSTGRES_SSL=require` is set in `.env`.
+If you previously ran `pg_restore` with `$env:PGSSLMODE="require"`, clear it in PowerShell:
+`Remove-Item Env:PGSSLMODE -ErrorAction SilentlyContinue`
+(or use `run.bat`, which clears it automatically).
 
 ## Copy local data to Render (already done once)
 
